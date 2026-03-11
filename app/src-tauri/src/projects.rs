@@ -222,6 +222,11 @@ pub fn record_usage(project_path: &str) -> io::Result<()> {
 /// This prevents OOM when a repo has massive untracked/dirty output.
 const GIT_OUTPUT_LIMIT: usize = 512 * 1024; // 512 KB
 
+/// Maximum time to wait for a git command before killing it.
+/// Prevents a hung git (e.g., on an unresponsive network share) from blocking
+/// the entire project scan.
+const GIT_TIMEOUT: std::time::Duration = std::time::Duration::from_secs(5);
+
 fn scan_one_project(path: &str, label: Option<&String>) -> Option<ProjectInfo> {
     let p = Path::new(path);
     if !p.is_dir() {
@@ -240,10 +245,16 @@ fn scan_one_project(path: &str, label: Option<&String>) -> Option<ProjectInfo> {
         .spawn()
     {
         Ok(mut child) => {
-            // Read stdout incrementally with a size cap to prevent OOM
-            // on repos with massive untracked/dirty file lists.
+            // Read stdout in a dedicated thread so we can enforce a timeout.
+            // BufReader::lines() blocks on ReadFile; if git hangs (e.g., on a
+            // network share), we'd block the scan thread forever without this.
             let stdout_pipe = child.stdout.take();
-            let (branch, dirty) = if let Some(stdout) = stdout_pipe {
+            let (tx, rx) = std::sync::mpsc::channel();
+            thread::spawn(move || {
+                let Some(stdout) = stdout_pipe else {
+                    let _ = tx.send((None, false));
+                    return;
+                };
                 use std::io::{BufRead, BufReader};
                 let reader = BufReader::new(stdout);
                 let mut branch: Option<String> = None;
@@ -261,22 +272,20 @@ fn scan_one_project(path: &str, label: Option<&String>) -> Option<ProjectInfo> {
                     } else if !line.starts_with('#') && !line.is_empty() {
                         dirty = true;
                     }
-                    // Once we have branch info and know it's dirty, or hit
-                    // the size limit, stop reading to avoid unbounded memory use.
                     if (branch.is_some() && dirty) || total_bytes > GIT_OUTPUT_LIMIT {
                         break;
                     }
                 }
-                (branch, dirty)
-            } else {
-                (None, false)
-            };
+                let _ = tx.send((branch, dirty));
+            });
 
-            // Ensure the child process is cleaned up (kill if still running
-            // because we may have stopped reading early).
+            // Wait for the reader with a timeout. If git hangs, kill it
+            // and the broken pipe will unblock the reader thread.
+            let result = rx.recv_timeout(GIT_TIMEOUT).unwrap_or((None, false));
+
             let _ = child.kill();
             let _ = child.wait();
-            (branch, dirty)
+            result
         }
         _ => (None, false),
     };
@@ -331,9 +340,14 @@ pub fn scan_projects(project_dirs: &[String], labels: &HashMap<String, String>) 
                 let label = labels.get(&dir).cloned();
                 let tx = tx.clone();
                 thread::spawn(move || {
-                    if let Some(info) = scan_one_project(&dir, label.as_ref()) {
-                        let _ = tx.send(info);
-                    }
+                    // catch_unwind: a single problematic project must not
+                    // abort the entire scan. Panic is logged by the global hook.
+                    let result = std::panic::catch_unwind(std::panic::AssertUnwindSafe(|| {
+                        if let Some(info) = scan_one_project(&dir, label.as_ref()) {
+                            let _ = tx.send(info);
+                        }
+                    }));
+                    let _ = result; // ignore panic — already logged
                 })
             })
             .collect();
