@@ -15,3 +15,20 @@
 .terminal-container .xterm {
   height: 100%;
 }
+
+.terminal-container .xterm-viewport::-webkit-scrollbar {
+  width: 8px;
+}
+
+.terminal-container .xterm-viewport::-webkit-scrollbar-thumb {
+  background: var(--overlay0);
+  border-radius: var(--radius-sm);
+}
+
+.terminal-container .xterm-viewport::-webkit-scrollbar-thumb:hover {
+  background: var(--overlay1);
+}
+
+.terminal-container .xterm-viewport::-webkit-scrollbar-track {
+  background: transparent;
+}

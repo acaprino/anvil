@@ -124,26 +124,53 @@ export default memo(function Terminal({
 
     let lastCols = 0;
     let lastRows = 0;
-    const fitAndResize = () => {
-      fitAddon.fit();
+    let resizeTimer: ReturnType<typeof setTimeout> | undefined;
+
+    const syncPtySize = (debounce: boolean) => {
       const cols = xterm.cols;
       const rows = xterm.rows;
       if (cols !== lastCols || rows !== lastRows) {
         lastCols = cols;
         lastRows = rows;
         if (sessionIdRef.current) {
-          resizePty(sessionIdRef.current, cols, rows);
+          if (debounce) {
+            clearTimeout(resizeTimer);
+            resizeTimer = setTimeout(() => {
+              if (sessionIdRef.current) {
+                resizePty(sessionIdRef.current, cols, rows).catch(() => {});
+              }
+            }, 80);
+          } else {
+            resizePty(sessionIdRef.current, cols, rows).catch(() => {});
+          }
         }
       }
     };
+
+    const fitAndResize = () => {
+      fitAddon.fit();
+      syncPtySize(false);
+    };
     fitAndResizeRef.current = fitAndResize;
 
-    const observer = new ResizeObserver(() => { fitAndResize(); });
+    // Cancellation flag — checked in async callbacks to prevent post-disposal access
+    let cancelled = false;
+
+    // Throttle ResizeObserver to one fit per frame + debounce PTY resize
+    let resizeRaf = 0;
+    const observer = new ResizeObserver(() => {
+      if (resizeRaf) return;
+      resizeRaf = requestAnimationFrame(() => {
+        resizeRaf = 0;
+        if (cancelled) return;
+        fitAddon.fit();
+        syncPtySize(true);
+      });
+    });
     observer.observe(containerRef.current);
 
     // Defer fit + spawn to next frame so the container has its final layout.
     // Use cancellation flag to prevent orphaned PTY if component unmounts before rAF fires.
-    let cancelled = false;
     const rafId = requestAnimationFrame(() => {
       if (cancelled) return;
       fitAndResize();
@@ -217,6 +244,8 @@ export default memo(function Terminal({
     return () => {
       cancelled = true;
       cancelAnimationFrame(rafId);
+      cancelAnimationFrame(resizeRaf);
+      clearTimeout(resizeTimer);
       clearInterval(heartbeatInterval);
       unlistenDragDrop?.();
       observer.disconnect();
