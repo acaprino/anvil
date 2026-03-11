@@ -108,10 +108,11 @@ pub async fn active_session_count(
 #[tauri::command]
 pub async fn scan_projects(
     project_dirs: Vec<String>,
+    single_project_dirs: Vec<String>,
     labels: std::collections::HashMap<String, String>,
 ) -> Result<Vec<ProjectInfo>, String> {
-    log_info!("scan_projects: dirs={project_dirs:?}");
-    let projs = tokio::task::spawn_blocking(move || projects::scan_projects(&project_dirs, &labels))
+    log_info!("scan_projects: dirs={project_dirs:?}, single={single_project_dirs:?}");
+    let projs = tokio::task::spawn_blocking(move || projects::scan_projects(&project_dirs, &single_project_dirs, &labels))
         .await
         .map_err(|e| format!("Task failed: {e}"))?;
     log_info!("scan_projects: found {} projects", projs.len());
@@ -128,7 +129,7 @@ pub async fn load_settings() -> Result<Settings, String> {
 
 #[tauri::command]
 pub async fn save_settings(settings: Settings) -> Result<(), String> {
-    log_info!("save_settings: dirs={:?}", settings.project_dirs);
+    log_info!("save_settings: dirs={:?}, single={:?}", settings.project_dirs, settings.single_project_dirs);
     tokio::task::spawn_blocking(move || {
         projects::save_settings(&settings).map_err(|e| format!("Failed to save settings: {e}"))
     })

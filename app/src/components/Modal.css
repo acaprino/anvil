@@ -168,6 +168,47 @@
   flex: 1;
 }
 
+.add-dir-mode-select {
+  width: auto;
+  flex: 0 0 auto;
+}
+
+.dir-mode-badge {
+  font-size: var(--text-xs);
+  padding: 1px 5px;
+  border-radius: var(--radius-sm);
+  border: 1px solid var(--overlay0);
+  background: var(--surface);
+  color: var(--text-dim);
+  flex-shrink: 0;
+  margin-right: var(--space-2);
+  font-family: "Cascadia Code", "Consolas", monospace;
+  cursor: pointer;
+  white-space: nowrap;
+  transition: color 0.12s, border-color 0.12s;
+}
+
+.dir-mode-badge:hover {
+  color: var(--accent);
+  border-color: var(--accent);
+}
+
+.dir-mode-badge.container {
+  /* Neutral state — inherits base .dir-mode-badge styles */
+}
+
+.dir-mode-badge.single {
+  color: var(--green);
+  border-color: var(--green);
+}
+
+.modal-hint {
+  font-size: var(--text-xs);
+  color: var(--text-dim);
+  margin-top: var(--space-2);
+  margin-bottom: 0;
+}
+
 .modal-error {
   color: var(--red);
   font-size: var(--text-sm);

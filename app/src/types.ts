@@ -30,6 +30,7 @@ export interface Settings {
   font_size: number;
   skip_perms: boolean;
   project_dirs: string[];
+  single_project_dirs: string[];
   project_labels: Record<string, string>;
 }
 

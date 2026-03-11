@@ -285,10 +285,11 @@ function NewTabPage({ tabId, onLaunch, onRequestClose, isActive }: NewTabPagePro
       )}
       {activeModal === "manage-dirs" && (
         <ManageDirsModal
-          dirs={settings.project_dirs}
+          containerDirs={settings.project_dirs}
+          singleDirs={settings.single_project_dirs}
           onClose={() => setActiveModal(null)}
-          onSave={(dirs) => {
-            updateSettings({ project_dirs: dirs });
+          onSave={(containerDirs, singleDirs) => {
+            updateSettings({ project_dirs: containerDirs, single_project_dirs: singleDirs });
             setActiveModal(null);
           }}
         />
@@ -314,10 +315,14 @@ function NewTabPage({ tabId, onLaunch, onRequestClose, isActive }: NewTabPagePro
         <QuickLaunchModal
           onClose={() => setActiveModal(null)}
           onLaunch={(dirPath, addToProjects) => {
-            if (addToProjects && !settings.project_dirs.some((d) => dirPath.startsWith(d))) {
-              const parent = dirPath.replace(/[\\/][^\\/]+$/, "");
-              if (parent && !settings.project_dirs.includes(parent)) {
-                updateSettings({ project_dirs: [...settings.project_dirs, parent] });
+            if (addToProjects) {
+              const dl = dirPath.toLowerCase();
+              const inContainer = settings.project_dirs.some(
+                (d) => dl.startsWith(d.toLowerCase() + "\\") || dl.startsWith(d.toLowerCase() + "/"),
+              );
+              const isSingle = settings.single_project_dirs.some((d) => d.toLowerCase() === dl);
+              if (!inContainer && !isSingle) {
+                updateSettings({ single_project_dirs: [...settings.single_project_dirs, dirPath] });
               }
             }
             const name = dirPath.split(/[\\/]/).pop() ?? "Terminal";
@@ -374,6 +379,7 @@ function CreateProjectModal({
 
   const handleCreate = async () => {
     if (!name.trim()) { setErr("Name cannot be empty"); return; }
+    if (!parentDir) { setErr("No container directory configured. Add one via F7."); return; }
     setCreating(true);
     setErr("");
     try {
@@ -435,40 +441,71 @@ function CreateProjectModal({
 
 // --- Manage Directories Modal ---
 
+type DirMode = "container" | "single";
+type DirEntry = { path: string; mode: DirMode };
+
 function ManageDirsModal({
-  dirs,
+  containerDirs,
+  singleDirs,
   onClose,
   onSave,
 }: {
-  dirs: string[];
+  containerDirs: string[];
+  singleDirs: string[];
   onClose: () => void;
-  onSave: (dirs: string[]) => void;
+  onSave: (containerDirs: string[], singleDirs: string[]) => void;
 }) {
-  const [localDirs, setLocalDirs] = useState([...dirs]);
-  const [newDir, setNewDir] = useState("");
+  const [entries, setEntries] = useState<DirEntry[]>([
+    ...containerDirs.map((p) => ({ path: p, mode: "container" as DirMode })),
+    ...singleDirs.map((p) => ({ path: p, mode: "single" as DirMode })),
+  ]);
+  const [newPath, setNewPath] = useState("");
+  const [newMode, setNewMode] = useState<DirMode>("container");
   const inputRef = useRef<HTMLInputElement>(null);
 
   useEffect(() => { inputRef.current?.focus(); }, []);
 
   const addDir = () => {
-    const trimmed = newDir.trim();
-    if (!trimmed || localDirs.includes(trimmed)) return;
-    setLocalDirs([...localDirs, trimmed]);
-    setNewDir("");
+    const trimmed = newPath.trim();
+    if (!trimmed || entries.some((e) => e.path === trimmed)) return;
+    if (trimmed.startsWith("\\\\")) return; // Block UNC paths
+    setEntries([...entries, { path: trimmed, mode: newMode }]);
+    setNewPath("");
   };
 
   const removeDir = (idx: number) => {
-    if (localDirs.length <= 1) return; // Keep at least one
-    setLocalDirs(localDirs.filter((_, i) => i !== idx));
+    if (entries.length <= 1) return;
+    setEntries(entries.filter((_, i) => i !== idx));
+  };
+
+  const toggleMode = (idx: number) => {
+    setEntries(entries.map((e, i) =>
+      i === idx ? { ...e, mode: e.mode === "container" ? "single" : "container" } : e
+    ));
+  };
+
+  const handleSave = () => {
+    if (entries.length === 0) return;
+    onSave(
+      entries.filter((e) => e.mode === "container").map((e) => e.path),
+      entries.filter((e) => e.mode === "single").map((e) => e.path),
+    );
   };
 
   return (
     <Modal title="Manage Project Directories" onClose={onClose}>
       <ul className="dir-list">
-        {localDirs.map((d, i) => (
-          <li key={d} className="dir-item">
-            <span className="dir-path" title={d}>{d}</span>
-            {localDirs.length > 1 && (
+        {entries.map((entry, i) => (
+          <li key={entry.path} className="dir-item">
+            <button
+              className={`dir-mode-badge ${entry.mode}`}
+              onClick={() => toggleMode(i)}
+              title="Click to toggle: container (subdirs are projects) / single project"
+            >
+              {entry.mode === "container" ? "container" : "project"}
+            </button>
+            <span className="dir-path" title={entry.path}>{entry.path}</span>
+            {entries.length > 1 && (
               <button className="remove-btn" onClick={() => removeDir(i)} title="Remove">
                 {"\u00d7"}
               </button>
@@ -480,16 +517,27 @@ function ManageDirsModal({
         <input
           ref={inputRef}
           className="modal-input"
-          value={newDir}
-          onChange={(e) => setNewDir(e.target.value)}
+          value={newPath}
+          onChange={(e) => setNewPath(e.target.value)}
           onKeyDown={(e) => { if (e.key === "Enter") addDir(); }}
           placeholder="D:\Projects\other"
         />
+        <select
+          className="modal-input add-dir-mode-select"
+          value={newMode}
+          onChange={(e) => setNewMode(e.target.value as DirMode)}
+        >
+          <option value="container">Container</option>
+          <option value="single">Single project</option>
+        </select>
         <button className="modal-btn" onClick={addDir}>Add</button>
       </div>
+      <p className="modal-hint">
+        Container: each subdirectory is a project. Single project: the folder itself is a project.
+      </p>
       <div className="modal-buttons">
         <button className="modal-btn" onClick={onClose}>Cancel</button>
-        <button className="modal-btn primary" onClick={() => onSave(localDirs)}>Save</button>
+        <button className="modal-btn primary" onClick={handleSave}>Save</button>
       </div>
     </Modal>
   );
@@ -582,7 +630,7 @@ function QuickLaunchModal({
           checked={addToProjects}
           onChange={(e) => setAddToProjects(e.target.checked)}
         />
-        <label htmlFor="add-to-projects">Add parent directory to project list</label>
+        <label htmlFor="add-to-projects">Add to project list</label>
       </div>
       <div className="modal-buttons">
         <button className="modal-btn" onClick={onClose}>Cancel</button>

@@ -26,6 +26,7 @@ export function useProjects() {
 
       const projs = await invoke<ProjectInfo[]>("scan_projects", {
         projectDirs: s.project_dirs,
+        singleProjectDirs: s.single_project_dirs,
         labels: s.project_labels,
       });
       setProjects(projs);
@@ -63,10 +64,11 @@ export function useProjects() {
       try {
         await invoke("save_settings", { settings: newSettings });
         // Rescan projects if dirs or labels changed
-        if (updates.project_dirs || updates.project_labels) {
+        if (updates.project_dirs || updates.single_project_dirs || updates.project_labels) {
           setLoading(true);
           const projs = await invoke<ProjectInfo[]>("scan_projects", {
             projectDirs: newSettings.project_dirs,
+            singleProjectDirs: newSettings.single_project_dirs,
             labels: newSettings.project_labels,
           });
           setProjects(projs);
@@ -134,6 +136,7 @@ export function useProjects() {
     setLoading(true);
     const projs = await invoke<ProjectInfo[]>("scan_projects", {
       projectDirs: settings.project_dirs,
+      singleProjectDirs: settings.single_project_dirs,
       labels: settings.project_labels,
     });
     setProjects(projs);

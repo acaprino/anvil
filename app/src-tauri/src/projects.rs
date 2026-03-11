@@ -33,6 +33,9 @@ pub struct Settings {
     pub skip_perms: bool,
     #[serde(default = "default_project_dirs")]
     pub project_dirs: Vec<String>,
+    /// Directories that are themselves single projects (not scanned for subdirectories).
+    #[serde(default)]
+    pub single_project_dirs: Vec<String>,
     #[serde(default)]
     pub project_labels: HashMap<String, String>,
     #[serde(flatten)]
@@ -65,6 +68,7 @@ impl Default for Settings {
             font_size: default_font_size(),
             skip_perms: false,
             project_dirs: default_project_dirs(),
+            single_project_dirs: Vec::new(),
             project_labels: HashMap::new(),
             extra: HashMap::new(),
         }
@@ -304,10 +308,10 @@ fn scan_one_project(path: &str, label: Option<&String>) -> Option<ProjectInfo> {
     })
 }
 
-pub fn scan_projects(project_dirs: &[String], labels: &HashMap<String, String>) -> Vec<ProjectInfo> {
+pub fn scan_projects(project_dirs: &[String], single_project_dirs: &[String], labels: &HashMap<String, String>) -> Vec<ProjectInfo> {
     use std::sync::mpsc;
 
-    // Collect all subdirectories from each parent dir
+    // Collect all subdirectories from each container dir
     let mut all_paths: Vec<String> = Vec::new();
     for parent in project_dirs {
         let parent_path = Path::new(parent);
@@ -330,6 +334,24 @@ pub fn scan_projects(project_dirs: &[String], labels: &HashMap<String, String>) 
                 }
             }
             Err(_) => continue,
+        }
+    }
+
+    // Build a case-insensitive dedup set from container-dir results.
+    // Windows NTFS is case-insensitive, so "D:\Foo" and "d:\foo" are the same path.
+    let mut seen: std::collections::HashSet<String> = all_paths
+        .iter()
+        .map(|p| p.to_ascii_lowercase())
+        .collect();
+
+    // Add single-project dirs directly (the folder itself is a project)
+    for path in single_project_dirs {
+        // Reject UNC paths, consistent with spawn_claude and open_in_explorer.
+        if is_unc(path) {
+            continue;
+        }
+        if seen.insert(path.to_ascii_lowercase()) {
+            all_paths.push(path.clone());
         }
     }
 
