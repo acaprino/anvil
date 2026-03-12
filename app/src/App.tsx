@@ -124,7 +124,6 @@ function AppContent() {
             <div
               key={tab.id}
               className={`tab-panel ${isActive ? "active" : ""} ${isTerminal ? "terminal-panel" : ""}`}
-              style={isTerminal ? { display: isActive ? "flex" : "none", opacity: 1, visibility: "visible" } : undefined}
             >
               {tab.type === "new-tab" ? (
                 <ErrorBoundary tabId={tab.id} onClose={closeTab}>

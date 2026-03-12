@@ -4,8 +4,6 @@ use std::io::Write;
 use std::path::PathBuf;
 use std::sync::Mutex;
 
-use crate::projects::data_dir;
-
 /// Maximum number of rotated log files to keep (log, log.1, log.2, log.3).
 const MAX_ROTATED: u32 = 3;
 
@@ -22,7 +20,12 @@ struct LogState {
 static LOG: Mutex<LogState> = Mutex::new(LogState { file: None, path: None });
 
 pub fn log_path() -> PathBuf {
-    data_dir().join("claude-launcher.log")
+    // Use %LOCALAPPDATA%\claude-launcher\ — same location as settings, usage, and session
+    // files — so all app data lives together. Avoids write-permission failures that occur
+    // when the exe is installed under Program Files.
+    dirs::data_local_dir()
+        .map(|p| p.join("claude-launcher").join("claude-launcher.log"))
+        .unwrap_or_else(|| std::env::temp_dir().join("claude-launcher.log"))
 }
 
 /// Rotate log files: .log → .log.1 → .log.2 → .log.3, deleting the oldest.
@@ -52,6 +55,11 @@ pub fn init() {
     let path = log_path();
     let mut state = LOG.lock().unwrap_or_else(|e| e.into_inner());
 
+    // Ensure the log directory exists (data_local_dir sub-directory may not exist yet).
+    if let Some(dir) = path.parent() {
+        let _ = fs::create_dir_all(dir);
+    }
+
     // Rotate previous logs before opening a new one
     if path.exists() {
         rotate(&path);
@@ -77,6 +85,8 @@ pub fn init() {
 }
 
 pub fn log(level: &str, msg: &str) {
+    // Sanitize newlines so IPC-supplied strings cannot forge additional log lines.
+    let msg = msg.replace('\n', "\\n").replace('\r', "\\r");
     let line = format!("[{}] [{level}] {msg}", timestamp());
 
     // Always print to stderr for dev console

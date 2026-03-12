@@ -79,8 +79,9 @@ html, body, #root {
   visibility: visible;
 }
 
-/* Terminal panels need display toggling for xterm layout;
-   we still fade them via opacity for visual smoothness. */
+/* Terminal panels use visibility-based hiding (not display:none) so that
+   xterm can measure font metrics and container dimensions during init.
+   No transition to avoid flicker on tab switch. */
 .tab-panel.terminal-panel {
   transition: none;
 }
