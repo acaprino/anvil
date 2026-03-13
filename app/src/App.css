@@ -102,6 +102,111 @@ html, body, #root {
 .resize-handle.bottom-left  { bottom: 0; left: 0; width: 8px; height: 8px; cursor: sw-resize; }
 .resize-handle.bottom-right { bottom: 0; right: 0; width: 8px; height: 8px; cursor: se-resize; }
 
+/* ── Retro mode: 90s console / adventure game aesthetic ── */
+.retro {
+  --radius-sm: 0px;
+  --radius-md: 0px;
+  --z-scanline: 999;
+  letter-spacing: 0.03em;
+}
+
+/* Hard edges everywhere */
+.retro .tab { border-radius: 0; }
+.retro .tab-close,
+.retro .tab-add { border-radius: 0; }
+.retro .modal { border-radius: 0; border-width: 2px; box-shadow: none; }
+.retro .modal-input { border-radius: 0; border-width: 2px; }
+.retro .modal-btn { border-radius: 0; border-width: 2px; padding: 5px var(--space-3); }
+.retro .project-item { border-radius: 0; }
+.retro .project-badge { border-radius: 0; }
+.retro .theme-preview { border-radius: 0; border-width: 2px; }
+.retro .tab.has-output::before { border-radius: 0; }
+.retro .theme-swatch-bar span { border-radius: 0; }
+.retro .status-filter { border-radius: 0; }
+.retro .shortcut-hints kbd { border-radius: 0; border: 1px solid var(--overlay0); }
+.retro .retry-button { border-radius: 0; border-width: 2px; }
+.retro .dir-mode-badge { border-radius: 0; }
+.retro .empty-hint kbd { border-radius: 0; }
+
+/* Thicker structural borders */
+.retro .tab-bar { border-bottom: 2px solid var(--overlay0); }
+.retro .status-bar { border-top: 2px solid var(--overlay0); }
+.retro .new-tab-header { border-bottom: 2px solid var(--overlay0); box-shadow: none; }
+
+/* Active tab: compensate for 2px border (was -1px for 1px border) */
+.retro .tab.active { margin-bottom: -2px; padding-bottom: 2px; }
+
+/* Kill smooth transitions and animations — snap like old UI */
+.retro .tab,
+.retro .tab-close,
+.retro .tab-add,
+.retro .win-btn,
+.retro .status-btn,
+.retro .project-item,
+.retro .project-item:active,
+.retro .modal-btn,
+.retro .retry-button,
+.retro .tab-panel,
+.retro .dir-mode-badge { transition: none; }
+
+.retro .tab,
+.retro .tab.closing,
+.retro .tab.has-output::before,
+.retro .skeleton-row,
+.retro .terminal-container,
+.retro .status-btn.perms.on strong { animation: none; }
+
+/* Terminal-style font — beats all component-level font-family declarations */
+.retro * { font-family: "Courier New", "Courier", monospace !important; }
+
+/* Static skeleton loading in retro mode */
+.retro .skeleton-row { background: var(--surface); }
+
+/* Disable smooth scrolling */
+.retro .project-list { scroll-behavior: auto; }
+
+/* Boxy selected project — double-line left border like DOS list */
+.retro .project-item.selected {
+  box-shadow: inset 3px 0 0 var(--accent);
+}
+
+.retro .project-item:hover:not(.selected) {
+  box-shadow: inset 3px 0 0 color-mix(in srgb, var(--accent) 40%, transparent);
+}
+
+/* CRT scanline overlay — below modals, above everything else.
+   Note: prefers-reduced-motion kills retro-blink; the retro aesthetic
+   still works through geometry (square corners, thick borders, scanlines). */
+.retro::after {
+  content: "";
+  position: fixed;
+  inset: 0;
+  pointer-events: none;
+  z-index: var(--z-scanline);
+  background: repeating-linear-gradient(
+    0deg,
+    transparent,
+    transparent 3px,
+    rgba(0, 0, 0, 0.06) 3px,
+    rgba(0, 0, 0, 0.06) 6px
+  );
+}
+
+/* Blinking cursor + CRT glow on the app title */
+.retro .new-tab-header h2 {
+  text-shadow: 0 0 2px currentColor;
+}
+
+.retro .new-tab-header h2::after {
+  content: "_";
+  animation: retro-blink 1s step-end infinite;
+}
+
+@keyframes retro-blink {
+  0%, 50% { opacity: 1; }
+  51%, 100% { opacity: 0; }
+}
+
 @media (prefers-reduced-motion: reduce) {
   *, *::before, *::after {
     animation-duration: 0.01ms !important;

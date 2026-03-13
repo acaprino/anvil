@@ -1,9 +1,9 @@
 "$schema" = "schemas/desktop-schema.json"
 
 [[permission]]
-identifier = "allow-spawn-claude"
-description = "Allows spawning a Claude CLI session"
-commands.allow = ["spawn_claude"]
+identifier = "allow-spawn-tool"
+description = "Allows spawning a CLI tool session"
+commands.allow = ["spawn_tool"]
 
 [[permission]]
 identifier = "allow-write-pty"

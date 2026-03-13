@@ -1,3 +1,4 @@
+import { invoke } from "@tauri-apps/api/core";
 import { THEMES } from "./types";
 
 export function applyTheme(themeIdx: number): void {
@@ -17,6 +18,10 @@ export function applyTheme(themeIdx: number): void {
   root.style.setProperty("--red", c.red);
   root.style.setProperty("--green", c.green);
   root.style.setProperty("--yellow", c.yellow);
+
+  const isRetro = !!theme.retro;
+  root.classList.toggle("retro", isRetro);
+  invoke("set_window_corner_preference", { retro: isRetro }).catch(() => {});
 }
 
 export function getXtermTheme(themeIdx: number): { background: string; foreground: string; cursor: string; selectionBackground: string } {

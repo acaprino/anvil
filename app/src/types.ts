@@ -77,6 +77,7 @@ export interface ThemeColors {
 export interface Theme {
   name: string;
   colors: ThemeColors;
+  retro?: boolean;
 }
 
 export const THEMES: Theme[] = [
@@ -150,6 +151,26 @@ export const THEMES: Theme[] = [
       text: "#f8f8f2", textDim: "#938e78", overlay0: "#7e7963", overlay1: "#89846d",
       accent: "#66d9ef", red: "#f92672", green: "#a6e22e", yellow: "#e6db74",
       cursor: "#f8f8f0", selection: "#49483e",
+    },
+  },
+  {
+    name: "Anvil Forge [retro]",
+    retro: true,
+    colors: {
+      bg: "#2a2420", surface: "#3d342c", mantle: "#221d18", crust: "#1a1510",
+      text: "#e8d5b5", textDim: "#b8a890", overlay0: "#7a6e60", overlay1: "#8a7e6e",
+      accent: "#e8943a", red: "#f06845", green: "#9cc068", yellow: "#e8c43a",
+      cursor: "#f0a848", selection: "#4a3e32",
+    },
+  },
+  {
+    name: "Guybrush [retro]",
+    retro: true,
+    colors: {
+      bg: "#1c2230", surface: "#2c3548", mantle: "#151a26", crust: "#10141e",
+      text: "#dcd0b8", textDim: "#a09888", overlay0: "#657080", overlay1: "#738090",
+      accent: "#4ac8b0", red: "#e86050", green: "#6abe60", yellow: "#e8c850",
+      cursor: "#e0d0a8", selection: "#3a4460",
     },
   },
 ];
