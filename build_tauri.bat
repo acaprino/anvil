@@ -14,6 +14,23 @@ set "PATH=%RUST_BIN%;%CARGO_BIN%;%PATH%"
 where cargo >nul 2>&1 || (echo ERROR: cargo not found. Install Rust from https://rustup.rs & exit /b 1)
 where node >nul 2>&1 || (echo ERROR: node not found. Install Node.js from https://nodejs.org & exit /b 1)
 
+:: Ensure fast linker (rust-lld) is available
+set "LLD_EXE=%RUST_BIN%\rust-lld-link.exe"
+set "CARGO_CONFIG_DIR=%~dp0app\src-tauri\.cargo"
+set "CARGO_CONFIG=%CARGO_CONFIG_DIR%\config.toml"
+
+if not exist "%LLD_EXE%" rustup component add rust-lld >nul 2>&1
+if not exist "%LLD_EXE%" rustup update stable >nul 2>&1
+
+if exist "%LLD_EXE%" (
+    echo Fast linker rust-lld-link.exe found.
+    if not exist "%CARGO_CONFIG_DIR%" mkdir "%CARGO_CONFIG_DIR%"
+    > "%CARGO_CONFIG%" echo ^[target.x86_64-pc-windows-msvc^]
+    >> "%CARGO_CONFIG%" echo linker = "rust-lld-link.exe"
+) else (
+    echo Fast linker not available, using default linker.
+)
+
 :: Move to app directory
 cd /d "%~dp0app"
 
