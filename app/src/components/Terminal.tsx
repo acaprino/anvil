@@ -114,6 +114,45 @@ export default memo(function Terminal({
       if (event.ctrlKey && !event.shiftKey && event.key === "t") return false;
       if (event.ctrlKey && event.key === "F4") return false;
       if (event.ctrlKey && event.key === "Tab") return false;
+      // Handle Ctrl+C copy — if text is selected, copy to clipboard;
+      // otherwise let it pass through as SIGINT to the PTY.
+      if (event.ctrlKey && !event.shiftKey && event.key === "c") {
+        const selection = xterm.getSelection();
+        if (selection) {
+          event.preventDefault();
+          navigator.clipboard.writeText(selection).catch((err) => {
+            console.warn("Clipboard copy failed:", err);
+          });
+          xterm.clearSelection();
+          return false;
+        }
+        return true;
+      }
+      // Handle Ctrl+V paste explicitly — WebView2 doesn't reliably forward
+      // the native paste event to xterm's internal textarea.
+      if (event.ctrlKey && !event.shiftKey && event.key === "v") {
+        if (event.repeat) return false;
+        event.preventDefault();
+        navigator.clipboard.readText().then((text) => {
+          if (!text) return;
+          if (exitedRef.current) {
+            onRequestCloseRef.current(tabIdRef.current);
+            return;
+          }
+          if (!sessionIdRef.current) return;
+          // Strip C0 control chars (except \t \n \r) to prevent escape injection,
+          // then wrap in bracketed paste so the CLI treats it as pasted content.
+          const sanitized = text.replace(/[\x00-\x08\x0b\x0c\x0e-\x1f\x7f]/g, "");
+          if (!sanitized) return;
+          const bracketed = `\x1b[200~${sanitized}\x1b[201~`;
+          writePty(sessionIdRef.current, bracketed).catch((err) => {
+            console.warn("Paste write failed:", err);
+          });
+        }).catch((err) => {
+          console.warn("Clipboard read failed:", err);
+        });
+        return false;
+      }
       return true;
     });
 
@@ -240,9 +279,19 @@ export default memo(function Terminal({
 
     // On wake from standby, send an immediate heartbeat so the reaper doesn't
     // time out sessions that are still alive but missed beats during sleep.
+    // If the heartbeat fails, the session was already reaped — surface exit to user.
     const handleVisibilityChange = () => {
+      if (cancelled) return;
       if (document.visibilityState === "visible" && sessionIdRef.current && !exitedRef.current) {
-        sendHeartbeat(sessionIdRef.current).catch(() => {});
+        sendHeartbeat(sessionIdRef.current).catch(() => {
+          if (!exitedRef.current) {
+            exitedRef.current = true;
+            xtermRef.current?.write(
+              `\r\n\x1b[90m[Session lost during standby. Press any key to close tab]\x1b[0m`,
+            );
+            onExitRef.current(tabIdRef.current, -1);
+          }
+        });
       }
     };
     document.addEventListener("visibilitychange", handleVisibilityChange);

@@ -17,10 +17,10 @@ const MAX_SESSIONS: usize = 10;
 const OUTPUT_BATCH_MS: u64 = 16;
 const MAX_WRITE_SIZE: usize = 65536;
 
-/// Heartbeat timeout: 300s to survive brief standby periods.
-/// The frontend sends heartbeats every 5s, and also immediately on wake from standby.
-/// 300s = 5 minutes, covers typical short standby without killing live sessions.
-const HEARTBEAT_TIMEOUT_SECS: u64 = 300;
+/// Heartbeat timeout: 60s gives 12x safety margin over the 5s heartbeat interval.
+/// The frontend sends an immediate heartbeat on wake from standby (visibilitychange),
+/// so this timeout only needs to cover frontend crashes, not standby duration.
+const HEARTBEAT_TIMEOUT_SECS: u64 = 60;
 
 #[derive(Clone, Serialize)]
 #[serde(rename_all = "camelCase", tag = "type")]
