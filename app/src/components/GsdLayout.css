@@ -1,0 +1,84 @@
+/* Shared layout for static info pages (About, Usage, etc.) */
+.static-page {
+  display: flex;
+  align-items: flex-start;
+  justify-content: center;
+  height: 100%;
+  background: var(--bg);
+  overflow: auto;
+  padding: var(--space-6) var(--space-4);
+}
+
+.static-page-inner {
+  padding: var(--space-4) var(--space-6);
+  max-width: 800px;
+  width: 100%;
+  overflow-x: auto;
+  user-select: text;
+}
+
+/* ━━━ GSD Banner ━━━ */
+.gsd-banner {
+  margin: var(--space-6) 0 var(--space-4);
+}
+
+.gsd-banner-bar {
+  height: 2px;
+  background: var(--overlay0);
+}
+
+.gsd-banner-title {
+  color: var(--text);
+
+  font-size: var(--text-sm);
+  font-weight: bold;
+  padding: var(--space-2) 0;
+  letter-spacing: 0.5px;
+}
+
+/* ╔═══╗ GSD Box ╚═══╝ */
+.gsd-box {
+  border: 1px solid var(--overlay0);
+  padding: var(--space-3) var(--space-4);
+  margin: var(--space-2) 0;
+}
+
+.gsd-box pre {
+  color: var(--text-dim);
+
+  font-size: var(--text-sm);
+  line-height: 1.6;
+  white-space: pre;
+  margin: 0;
+}
+
+/* ─── Separator ─── */
+.gsd-sep {
+  height: 1px;
+  background: var(--overlay0);
+  margin: var(--space-3) 0;
+  opacity: 0.5;
+}
+
+/* Plain text blocks */
+.gsd-text {
+  color: var(--text-dim);
+
+  font-size: var(--text-sm);
+  line-height: 1.6;
+  white-space: pre;
+  margin: var(--space-2) 0;
+}
+
+/* Footer */
+.gsd-footer {
+  margin-top: var(--space-6);
+}
+
+.gsd-footer-text {
+  color: var(--text-dim);
+
+  font-size: var(--text-sm);
+  padding: var(--space-2) 0;
+  text-align: center;
+}

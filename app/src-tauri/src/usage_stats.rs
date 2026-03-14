@@ -1,5 +1,6 @@
 use serde::Serialize;
 use std::collections::HashMap;
+use std::io::{BufRead, BufReader};
 use std::path::PathBuf;
 use std::time::{Duration, SystemTime};
 
@@ -116,18 +117,23 @@ pub fn compute_usage(days_back: u64) -> Result<TokenUsageStats, String> {
     let mut session_ids: std::collections::HashSet<String> = std::collections::HashSet::new();
 
     for path in &jsonl_files {
-        let content = match std::fs::read_to_string(path) {
-            Ok(c) => c,
+        let file = match std::fs::File::open(path) {
+            Ok(f) => f,
             Err(_) => continue,
         };
+        let reader = BufReader::new(file);
 
-        for line in content.lines() {
+        for line in reader.lines() {
+            let line = match line {
+                Ok(l) => l,
+                Err(_) => continue,
+            };
             // Fast-path: skip lines that aren't assistant messages
             if !line.contains("\"type\":\"assistant\"") {
                 continue;
             }
 
-            let parsed: serde_json::Value = match serde_json::from_str(line) {
+            let parsed: serde_json::Value = match serde_json::from_str(&line) {
                 Ok(v) => v,
                 Err(_) => continue,
             };

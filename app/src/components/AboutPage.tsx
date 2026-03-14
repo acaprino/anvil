@@ -1,6 +1,8 @@
 import { memo, useState, useEffect, useMemo } from "react";
 import { getVersion } from "@tauri-apps/api/app";
 import { THEMES } from "../types";
+import { Banner, Box, Sep } from "./GsdPrimitives";
+import "./GsdLayout.css";
 import "./AboutPage.css";
 
 interface AboutPageProps {
@@ -122,24 +124,6 @@ const AsciiLogo = memo(function AsciiLogo({ cols = 60 }: { cols?: number }) {
   );
 });
 
-function Banner({ title }: { title: string }) {
-  return (
-    <div className="gsd-banner">
-      <div className="gsd-banner-bar" />
-      <div className="gsd-banner-title">ANVIL ► {title}</div>
-      <div className="gsd-banner-bar" />
-    </div>
-  );
-}
-
-function Box({ children }: { children: React.ReactNode }) {
-  return <div className="gsd-box"><pre>{children}</pre></div>;
-}
-
-function Sep() {
-  return <div className="gsd-sep" />;
-}
-
 function buildAboutBox(version: string) {
   return `  A N V I L
   AI Code Session Launcher
@@ -178,7 +162,8 @@ const SHORTCUTS_ACTIONS = `  F5            Create project
   F9            Theme picker
   F10           Quick launch
   F11           Font settings
-  F12           About (toggle)`;
+  F12           About (toggle)
+  Ctrl+U        Token usage`;
 
 function AboutPage({ tabId, onRequestClose, isActive }: AboutPageProps) {
   const [version, setVersion] = useState("...");
@@ -204,8 +189,8 @@ function AboutPage({ tabId, onRequestClose, isActive }: AboutPageProps) {
   }, [isActive, tabId, onRequestClose]);
 
   return (
-    <div className="about-page">
-      <div className="about-terminal">
+    <div className="static-page">
+      <div className="static-page-inner">
         <AsciiLogo cols={55} />
 
         <Banner title="ABOUT" />

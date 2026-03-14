@@ -1,13 +1,3 @@
-.usage-page {
-  display: flex;
-  align-items: flex-start;
-  justify-content: center;
-  height: 100%;
-  background: var(--bg);
-  overflow: auto;
-  padding: var(--space-6) var(--space-4);
-}
-
 .usage-header {
   color: var(--accent);
   font-size: var(--text-xl);

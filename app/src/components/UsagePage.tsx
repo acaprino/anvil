@@ -1,5 +1,7 @@
 import { memo, useState, useEffect } from "react";
 import { invoke } from "@tauri-apps/api/core";
+import { Banner, Box, Sep } from "./GsdPrimitives";
+import "./GsdLayout.css";
 import "./UsagePage.css";
 
 interface DayStats {
@@ -62,24 +64,6 @@ function padLeft(s: string, len: number): string {
   return s.length >= len ? s : " ".repeat(len - s.length) + s;
 }
 
-function Banner({ title }: { title: string }) {
-  return (
-    <div className="gsd-banner">
-      <div className="gsd-banner-bar" />
-      <div className="gsd-banner-title">ANVIL ► {title}</div>
-      <div className="gsd-banner-bar" />
-    </div>
-  );
-}
-
-function Box({ children }: { children: React.ReactNode }) {
-  return <div className="gsd-box"><pre>{children}</pre></div>;
-}
-
-function Sep() {
-  return <div className="gsd-sep" />;
-}
-
 function buildTotalsBox(t: TotalStats): string {
   return `  Input Tokens       ${padLeft(fmtTokens(t.input_tokens), 10)}
   Output Tokens      ${padLeft(fmtTokens(t.output_tokens), 10)}
@@ -117,16 +101,18 @@ function UsagePage({ tabId, onRequestClose, isActive }: UsagePageProps) {
   const [stats, setStats] = useState<TokenUsageStats | null>(null);
   const [error, setError] = useState<string | null>(null);
 
+  // Fetch on mount and re-fetch when tab becomes active
   useEffect(() => {
+    if (!isActive) return;
     invoke<TokenUsageStats>("get_token_usage")
       .then(setStats)
       .catch((e) => setError(String(e)));
-  }, []);
+  }, [isActive]);
 
   useEffect(() => {
     if (!isActive) return;
     const handleKeyDown = (e: KeyboardEvent) => {
-      if (e.key === "Escape" || (e.ctrlKey && e.key === "u")) {
+      if (e.key === "Escape") {
         e.preventDefault();
         onRequestClose(tabId);
       }
@@ -137,8 +123,8 @@ function UsagePage({ tabId, onRequestClose, isActive }: UsagePageProps) {
 
   if (error) {
     return (
-      <div className="usage-page">
-        <div className="about-terminal">
+      <div className="static-page">
+        <div className="static-page-inner">
           <Banner title="ERROR" />
           <Box>{`  ${error}`}</Box>
         </div>
@@ -148,9 +134,14 @@ function UsagePage({ tabId, onRequestClose, isActive }: UsagePageProps) {
 
   if (!stats) {
     return (
-      <div className="usage-page">
-        <div className="about-terminal">
-          <Banner title="TOKEN USAGE" />
+      <div className="static-page">
+        <div className="static-page-inner">
+          <div className="usage-header">TOKEN USAGE</div>
+          <Banner title="TOTALS (7 DAYS)" />
+          <Box>{"  Loading..."}</Box>
+          <Banner title="BY MODEL" />
+          <Box>{"  Loading..."}</Box>
+          <Banner title="LAST 7 DAYS" />
           <Box>{"  Loading..."}</Box>
         </div>
       </div>
@@ -158,8 +149,8 @@ function UsagePage({ tabId, onRequestClose, isActive }: UsagePageProps) {
   }
 
   return (
-    <div className="usage-page">
-      <div className="about-terminal">
+    <div className="static-page">
+      <div className="static-page-inner">
         <div className="usage-header">TOKEN USAGE</div>
 
         <Banner title="TOTALS (7 DAYS)" />
