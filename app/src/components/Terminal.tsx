@@ -1,4 +1,4 @@
-import { memo, useEffect, useRef } from "react";
+import { memo, useEffect, useRef, useState } from "react";
 import { Terminal as XTerm } from "@xterm/xterm";
 import { FitAddon } from "@xterm/addon-fit";
 import { WebglAddon } from "@xterm/addon-webgl";
@@ -6,6 +6,7 @@ import { getCurrentWebview } from "@tauri-apps/api/webview";
 import { readText, writeText } from "@tauri-apps/plugin-clipboard-manager";
 import { spawnClaude, writePty, resizePty, sendHeartbeat, killSession, saveClipboardImage } from "../hooks/usePty";
 import { getXtermTheme } from "../themes";
+import Minimap from "./Minimap";
 import "@xterm/xterm/css/xterm.css";
 import "./Terminal.css";
 
@@ -135,6 +136,16 @@ export default memo(function Terminal({
     // probing canvas contexts directly (which can interfere with renderers).
     let webglContextLost = false;
 
+    /** Refresh the terminal viewport without disrupting the user's scroll position. */
+    const safeRefresh = () => {
+      const viewport = xterm.buffer.active.viewportY;
+      xterm.refresh(0, xterm.rows - 1);
+      // Restore scroll position if the refresh moved it
+      if (xterm.buffer.active.viewportY !== viewport) {
+        xterm.scrollToLine(viewport);
+      }
+    };
+
     /** Dispose the current WebGL addon safely and force a canvas re-render.
      *  Idempotent — only counts as one failure per actual disposal. */
     const disposeWebgl = (reason: string) => {
@@ -144,10 +155,7 @@ export default memo(function Terminal({
       currentWebgl = null;
       webglContextLost = true;
       webglFailures++;
-      if (!cancelled) {
-        // Force full canvas re-render so text is immediately readable
-        xterm.refresh(0, xterm.rows - 1);
-      }
+      if (!cancelled) safeRefresh();
     };
 
     const loadWebgl = () => {
@@ -187,6 +195,43 @@ export default memo(function Terminal({
     };
     loadWebgl();
 
+    // Shared paste logic used by both Ctrl+V and right-click → Paste
+    const doPaste = async () => {
+      if (exitedRef.current) {
+        onRequestCloseRef.current(tabIdRef.current);
+        return;
+      }
+      if (!sessionIdRef.current) return;
+      // Try text first
+      try {
+        const text = await readText();
+        if (text) {
+          const sanitized = sanitizePastedText(text);
+          if (sanitized) {
+            const sid = sessionIdRef.current;
+            if (!sid) return;
+            const bracketed = `\x1b[200~${sanitized}\x1b[201~`;
+            await writePty(sid, bracketed);
+            return;
+          }
+        }
+      } catch (textErr) {
+        console.debug("Clipboard text unavailable, trying image:", textErr);
+      }
+      // Fallback: try clipboard image — save as PNG temp file and paste the path
+      try {
+        const path = await saveClipboardImage();
+        const sid = sessionIdRef.current;
+        if (!sid) return;
+        const quoted = path.includes(" ") ? `"${path}"` : path;
+        const bracketed = `\x1b[200~${quoted}\x1b[201~`;
+        await writePty(sid, bracketed);
+      } catch (err) {
+        console.warn("Clipboard paste failed:", err);
+        xtermRef.current?.write("\x07"); // bell
+      }
+    };
+
     xterm.attachCustomKeyEventHandler((event: KeyboardEvent) => {
       if (event.type !== "keydown") return true;
       if (event.ctrlKey && !event.shiftKey && event.key === "t") return false;
@@ -211,54 +256,21 @@ export default memo(function Terminal({
       if (event.ctrlKey && !event.shiftKey && event.key === "v") {
         if (event.repeat) return false;
         event.preventDefault();
-        (async () => {
-          if (exitedRef.current) {
-            onRequestCloseRef.current(tabIdRef.current);
-            return;
-          }
-          if (!sessionIdRef.current) return;
-          // Try text first
-          try {
-            const text = await readText();
-            if (text) {
-              const sanitized = sanitizePastedText(text);
-              if (sanitized) {
-                const sid = sessionIdRef.current;
-                if (!sid) return;
-                const bracketed = `\x1b[200~${sanitized}\x1b[201~`;
-                await writePty(sid, bracketed);
-                return;
-              }
-            }
-          } catch (textErr) {
-            console.debug("Clipboard text unavailable, trying image:", textErr);
-          }
-          // Fallback: try clipboard image — save as PNG temp file and paste the path
-          try {
-            const path = await saveClipboardImage();
-            const sid = sessionIdRef.current;
-            if (!sid) return;
-            const quoted = path.includes(" ") ? `"${path}"` : path;
-            const bracketed = `\x1b[200~${quoted}\x1b[201~`;
-            await writePty(sid, bracketed);
-          } catch (err) {
-            console.warn("Clipboard paste failed:", err);
-            xtermRef.current?.write("\x07"); // bell
-          }
-        })();
+        doPaste();
         return false;
       }
       return true;
     });
 
-    // Block the native paste event from reaching xterm's internal textarea.
-    // Without this, Ctrl+V triggers both our custom handler (readText → writePty)
-    // AND xterm's built-in paste handler (via onData), causing duplicate/garbled pastes.
-    const blockNativePaste = (e: Event) => {
+    // Intercept native paste events (right-click → Paste, Ctrl+V browser-level).
+    // We handle paste ourselves via clipboard APIs so xterm's built-in handler
+    // doesn't produce duplicates or miss image content.
+    const handleNativePaste = (e: Event) => {
       e.preventDefault();
       e.stopPropagation();
+      doPaste();
     };
-    containerRef.current.addEventListener("paste", blockNativePaste, true);
+    containerRef.current.addEventListener("paste", handleNativePaste, true);
 
     xterm.onData((data) => {
       if (exitedRef.current) {
@@ -409,7 +421,7 @@ export default memo(function Terminal({
         // Always force a refresh after wake — even if WebGL looks alive,
         // glyph textures may be corrupted after GPU power state changes
         requestAnimationFrame(() => {
-          if (!cancelled) xterm.refresh(0, xterm.rows - 1);
+          if (!cancelled) safeRefresh();
         });
 
         if (sessionIdRef.current && !exitedRef.current) {
@@ -455,7 +467,7 @@ export default memo(function Terminal({
       clearTimeout(resizeTimer);
       clearInterval(heartbeatInterval);
       document.removeEventListener("visibilitychange", handleVisibilityChange);
-      containerRef.current?.removeEventListener("paste", blockNativePaste, true);
+      containerRef.current?.removeEventListener("paste", handleNativePaste, true);
       unlistenDragDrop?.();
       observer.disconnect();
       if (sessionIdRef.current) {
@@ -489,7 +501,12 @@ export default memo(function Terminal({
         // cases where WebGL context was evicted while the tab was inactive
         // (GPU reclaims contexts for inactive canvases) or glyph textures
         // were silently corrupted. Cheap operation — just redraws existing buffer.
+        // Preserve scroll position — refresh redraws the buffer without moving viewport
+        const vp = xtermRef.current.buffer.active.viewportY;
         xtermRef.current.refresh(0, xtermRef.current.rows - 1);
+        if (xtermRef.current.buffer.active.viewportY !== vp) {
+          xtermRef.current.scrollToLine(vp);
+        }
         xtermRef.current.focus();
       });
       return () => cancelAnimationFrame(fitRafId);
