@@ -482,6 +482,10 @@ export default memo(function Terminal({
       // After banner is stripped, briefly suppress cursor-repositioned output
       // to prevent Claude's status bar from overwriting the Anvil logo.
       let bannerCooldownEnd = 0;
+      // Debounced cursor show — hide during all output, show only after idle.
+      // Prevents the cursor from flickering at intermediate write positions.
+      let cursorShowTimer: ReturnType<typeof setTimeout> | undefined;
+      const CURSOR_IDLE_MS = 80;
 
       spawnClaude(
         projectPath,
@@ -546,21 +550,19 @@ export default memo(function Terminal({
               bannerCooldownEnd = 0;
             }
           }
-          // Claude Code's spinner/status updates reposition the cursor via
-          // save/restore (ESC 7/8), ANSI save/restore (CSI s/u), or direct
-          // CUP sequences (CSI <row>;<col>H). Without hiding, the cursor
-          // visibly jumps to every spinner location ("double cursor" ghost).
-          // Wrapping with DECTCEM hide/show ensures the cursor is only
-          // visible at its final (real) position.
-          // Don't add trailing show if data itself hides the cursor (Claude
-          // hides cursor during thinking).
-          if (CURSOR_MOVE_RE.test(data)) {
-            const lastHide = data.lastIndexOf(ESC_CURSOR_HIDE);
-            const lastShow = data.lastIndexOf(ESC_CURSOR_SHOW);
-            const endsWithHide = lastHide > lastShow;
-            xtermRef.current?.write(ESC_CURSOR_HIDE + data + (endsWithHide ? "" : ESC_CURSOR_SHOW));
-          } else {
-            xtermRef.current?.write(data);
+          // Hide cursor during ALL output, not just cursor-repositioning
+          // sequences. Rapid writes cause the cursor to flash at intermediate
+          // positions ("ghost caret" flickering through the text). A debounced
+          // show ensures the cursor only appears once output settles.
+          clearTimeout(cursorShowTimer);
+          const lastHide = data.lastIndexOf(ESC_CURSOR_HIDE);
+          const lastShow = data.lastIndexOf(ESC_CURSOR_SHOW);
+          const endsWithHide = lastHide > lastShow;
+          xtermRef.current?.write(ESC_CURSOR_HIDE + data);
+          if (!endsWithHide) {
+            cursorShowTimer = setTimeout(() => {
+              xtermRef.current?.write(ESC_CURSOR_SHOW);
+            }, CURSOR_IDLE_MS);
           }
           if (!isActiveRef.current) {
             onNewOutputRef.current(tabIdRef.current);
@@ -678,6 +680,7 @@ export default memo(function Terminal({
       cancelAnimationFrame(rafId);
       cancelAnimationFrame(resizeRafRef.current);
       clearTimeout(resizeTimer);
+      clearTimeout(cursorShowTimer);
       clearInterval(heartbeatInterval);
       document.removeEventListener("visibilitychange", handleVisibilityChange);
       containerRef.current?.removeEventListener("paste", handleNativePaste, true);
