@@ -78,14 +78,14 @@ export function useTabManager() {
   // Use a stable key derived only from persistence-relevant fields to avoid
   // recalculating on volatile changes like hasNewOutput or exitCode.
   const saveableKey = tabs
-    .filter((t) => t.type === "terminal" && t.projectPath)
+    .filter((t) => (t.type === "terminal" || t.type === "agent") && t.projectPath)
     .map((t) => `${t.projectPath}|${t.projectName ?? "Terminal"}|${t.toolIdx ?? 0}|${t.modelIdx ?? 0}|${t.effortIdx ?? 0}|${t.skipPerms ?? false}|${t.temporary ?? false}`)
     .join("\n");
 
   const saveableState = useMemo(() =>
     JSON.stringify(
       tabs
-        .filter((t) => t.type === "terminal" && t.projectPath)
+        .filter((t) => (t.type === "terminal" || t.type === "agent") && t.projectPath)
         .map((t) => ({
           projectPath: t.projectPath,
           projectName: t.projectName ?? "Terminal",
@@ -160,6 +160,7 @@ export function useTabManager() {
   const toggleAboutTab = useCallback(() => toggleSingletonTab("about"), [toggleSingletonTab]);
   const toggleUsageTab = useCallback(() => toggleSingletonTab("usage"), [toggleSingletonTab]);
   const toggleSystemPromptTab = useCallback(() => toggleSingletonTab("system-prompt"), [toggleSingletonTab]);
+  const toggleSessionsTab = useCallback(() => toggleSingletonTab("sessions"), [toggleSingletonTab]);
 
   const closeTab = useCallback(
     (tabId: string) => {
@@ -262,6 +263,7 @@ export function useTabManager() {
     toggleAboutTab,
     toggleUsageTab,
     toggleSystemPromptTab,
+    toggleSessionsTab,
     closeTab,
     updateTab,
     markNewOutput,

@@ -1,5 +1,5 @@
 import { useEffect, useCallback, useMemo, useRef } from "react";
-import { SystemPrompt } from "./types";
+import { SystemPrompt, THEMES } from "./types";
 import { getCurrentWindow } from "@tauri-apps/api/window";
 import { useTabManager } from "./hooks/useTabManager";
 import { ProjectsProvider, useProjectsContext } from "./contexts/ProjectsContext";
@@ -9,6 +9,7 @@ import NewTabPage from "./components/NewTabPage";
 import AboutPage from "./components/AboutPage";
 import UsagePage from "./components/UsagePage";
 import SystemPromptPage from "./components/SystemPromptPage";
+import SessionBrowser from "./components/SessionBrowser";
 import ErrorBoundary from "./components/ErrorBoundary";
 import "./App.css";
 
@@ -24,6 +25,7 @@ function AppContent() {
     toggleAboutTab,
     toggleUsageTab,
     toggleSystemPromptTab,
+    toggleSessionsTab,
     closeTab,
     updateTab,
     markNewOutput,
@@ -51,9 +53,9 @@ function AppContent() {
   }, [addTab, setFilter]);
 
   // H2: Memoize terminal count to avoid refiltering on every render
-  const terminalCount = useMemo(() => tabs.filter((t) => t.type === "terminal").length, [tabs]);
+  const terminalCount = useMemo(() => tabs.filter((t) => t.type === "terminal" || t.type === "agent").length, [tabs]);
   useEffect(() => {
-    if (activeTab.type === "terminal" && activeTab.projectName) {
+    if ((activeTab.type === "terminal" || activeTab.type === "agent") && activeTab.projectName) {
       const suffix = terminalCount > 1 ? ` (+${terminalCount - 1} tabs)` : "";
       appWindow.setTitle(`Anvil \u2014 ${activeTab.projectName}${suffix}`);
     } else {
@@ -89,6 +91,9 @@ function AppContent() {
       } else if (e.ctrlKey && e.key === "u") {
         e.preventDefault();
         toggleUsageTab();
+      } else if (e.ctrlKey && e.shiftKey && e.key === "H") {
+        e.preventDefault();
+        toggleSessionsTab();
       } else if (e.ctrlKey && e.shiftKey && e.key === "P") {
         e.preventDefault();
         toggleSystemPromptTab();
@@ -97,7 +102,7 @@ function AppContent() {
 
     window.addEventListener("keydown", handleKeyDown);
     return () => window.removeEventListener("keydown", handleKeyDown);
-  }, [addTabAndResetFilter, toggleAboutTab, toggleUsageTab, toggleSystemPromptTab, closeTab, activeTabId, nextTab, prevTab]);
+  }, [addTabAndResetFilter, toggleAboutTab, toggleUsageTab, toggleSystemPromptTab, toggleSessionsTab, closeTab, activeTabId, nextTab, prevTab]);
 
   const handleLaunch = useCallback(
     (tabId: string, projectPath: string, projectName: string, toolIdx: number, modelIdx: number, effortIdx: number, skipPerms: boolean, autocompact: boolean, temporary?: boolean) => {
@@ -191,7 +196,7 @@ function AppContent() {
       <div className="tab-content">
         {tabs.map((tab) => {
           const isActive = tab.id === activeTabId;
-          const isTerminal = tab.type === "terminal";
+          const isTerminal = tab.type === "terminal" || tab.type === "agent";
 
           return (
             <div
@@ -232,10 +237,31 @@ function AppContent() {
                     isActive={isActive}
                   />
                 </ErrorBoundary>
-              ) : (
+              ) : tab.type === "sessions" ? (
+                <ErrorBoundary tabId={tab.id} onClose={closeTab}>
+                  <SessionBrowser
+                    tabId={tab.id}
+                    isActive={isActive}
+                    onRequestClose={closeTab}
+                    onResumeSession={(sessionId, cwd) => {
+                      // TODO: open agent tab with resume
+                      console.log("Resume session", sessionId, cwd);
+                    }}
+                    onForkSession={(sessionId, cwd) => {
+                      // TODO: open agent tab with fork
+                      console.log("Fork session", sessionId, cwd);
+                    }}
+                    onViewSession={(sessionId) => {
+                      // TODO: view session transcript
+                      console.log("View session", sessionId);
+                    }}
+                  />
+                </ErrorBoundary>
+              ) : (tab.type === "terminal" || tab.type === "agent") ? (
                 <ErrorBoundary tabId={tab.id} onClose={closeTab}>
                   <Terminal
                     tabId={tab.id}
+                    tabType={tab.type as "terminal" | "agent"}
                     projectPath={tab.projectPath!}
                     toolIdx={tab.toolIdx ?? 0}
                     modelIdx={tab.modelIdx ?? 0}
@@ -244,6 +270,7 @@ function AppContent() {
                     autocompact={tab.autocompact ?? false}
                     systemPrompt={systemPrompt}
                     themeIdx={themeIdx}
+                    themeColors={THEMES[themeIdx]?.colors ?? THEMES[0].colors}
                     fontFamily={fontFamily}
                     fontSize={fontSize}
                     isActive={isActive}
@@ -254,6 +281,8 @@ function AppContent() {
                     onRequestClose={closeTab}
                   />
                 </ErrorBoundary>
+              ) : (
+                null
               )}
             </div>
           );

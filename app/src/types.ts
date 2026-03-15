@@ -7,7 +7,7 @@ export interface SystemPrompt {
 
 export interface Tab {
   id: string;
-  type: "new-tab" | "terminal" | "about" | "usage" | "system-prompt";
+  type: "new-tab" | "terminal" | "agent" | "about" | "usage" | "system-prompt" | "sessions";
   projectPath?: string;
   projectName?: string;
   toolIdx?: number;
@@ -17,6 +17,7 @@ export interface Tab {
   autocompact?: boolean;
   temporary?: boolean;
   sessionId?: string;
+  agentSessionId?: string;
   hasNewOutput?: boolean;
   exitCode?: number | null;
 }
@@ -48,6 +49,7 @@ export interface Settings {
   project_dirs: string[];
   single_project_dirs: string[];
   project_labels: Record<string, string>;
+  use_agent_sdk?: boolean;
 }
 
 export interface UsageEntry {
@@ -188,3 +190,30 @@ export const THEMES: Theme[] = [
     },
   },
 ];
+
+// ── Agent SDK types ─────────────────────────────────────────────────
+
+export type AgentEvent =
+  | { type: "assistant"; text: string; streaming: boolean }
+  | { type: "toolUse"; tool: string; input: unknown }
+  | { type: "toolResult"; tool: string; output: string; success: boolean }
+  | { type: "permission"; tool: string; description: string }
+  | { type: "inputRequired" }
+  | { type: "thinking"; text: string }
+  | { type: "status"; status: string; model: string }
+  | { type: "progress"; message: string }
+  | { type: "result"; cost: number; inputTokens: number; outputTokens: number; cacheReadTokens: number; cacheWriteTokens: number; turns: number; durationMs: number; isError: boolean; sessionId: string }
+  | { type: "error"; code: string; message: string }
+  | { type: "exit"; code: number };
+
+export interface SessionInfo {
+  id: string;
+  summary: string;
+  lastModified: number;
+  cwd: string;
+  firstPrompt: string;
+  gitBranch: string;
+  createdAt: number;
+  customTitle: string;
+  fileSize: number;
+}

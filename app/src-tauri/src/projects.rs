@@ -59,6 +59,8 @@ pub struct Settings {
     pub single_project_dirs: Vec<String>,
     #[serde(default)]
     pub project_labels: HashMap<String, String>,
+    #[serde(default = "default_true")]
+    pub use_agent_sdk: bool,
     #[serde(flatten)]
     pub extra: HashMap<String, serde_json::Value>,
 }
@@ -101,6 +103,7 @@ impl Default for Settings {
             project_dirs: default_project_dirs(),
             single_project_dirs: Vec::new(),
             project_labels: HashMap::new(),
+            use_agent_sdk: true,
             extra: HashMap::new(),
         }
     }

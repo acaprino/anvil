@@ -10,12 +10,14 @@ mod projects;
 mod prompts;
 mod pty;
 mod session;
+mod sidecar;
 mod usage_stats;
 mod watcher;
 
 use std::sync::Arc;
 use tauri::Manager;
 use session::SessionRegistry;
+use sidecar::SidecarManager;
 use watcher::ProjectWatcher;
 
 fn main() {
@@ -50,7 +52,11 @@ fn main() {
     registry.start_reaper();
     log_info!("Session reaper started");
 
+    log_info!("Initializing sidecar manager");
+    let sidecar_manager = Arc::new(SidecarManager::new());
+
     let registry_for_cleanup = Arc::clone(&registry);
+    let sidecar_for_cleanup = Arc::clone(&sidecar_manager);
 
     log_info!("Starting Tauri application");
     tauri::Builder::default()
@@ -68,6 +74,7 @@ fn main() {
         .plugin(tauri_plugin_clipboard_manager::init())
         .plugin(tauri_plugin_shell::init())
         .manage(registry)
+        .manage(sidecar_manager)
         .setup(|app| {
             log_info!("setup: loading initial settings");
             let handle = app.handle().clone();
@@ -137,12 +144,23 @@ fn main() {
             commands::get_token_usage,
             commands::list_directory,
             commands::load_builtin_prompts,
+            commands::sidecar_available,
+            commands::spawn_agent,
+            commands::agent_send,
+            commands::agent_resume,
+            commands::agent_fork,
+            commands::agent_kill,
+            commands::agent_permission,
+            commands::agent_set_model,
+            commands::list_agent_sessions,
+            commands::get_agent_messages,
         ])
         .on_window_event(move |window, event| {
             if let tauri::WindowEvent::CloseRequested { .. } = event {
                 if window.label() == "main" {
                     log_info!("Main window close requested — killing all sessions");
                     registry_for_cleanup.kill_all();
+                    sidecar_for_cleanup.shutdown();
                 }
             }
         })

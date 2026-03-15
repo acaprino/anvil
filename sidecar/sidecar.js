@@ -1,0 +1,483 @@
+// Anvil Sidecar — bridges Rust backend with @anthropic-ai/claude-agent-sdk
+// Protocol: JSON-lines over stdin (commands) / stdout (events) / stderr (logs)
+
+import { query, listSessions, getSessionMessages } from "@anthropic-ai/claude-agent-sdk";
+import { createInterface } from "readline";
+
+// Active sessions: tabId → { query, abortController, inputQueue, inputResolve }
+const sessions = new Map();
+
+// Emit a JSON-line event to stdout
+function emit(evt) {
+  process.stdout.write(JSON.stringify(evt) + "\n");
+}
+
+function log(...args) {
+  process.stderr.write(`[sidecar] ${args.join(" ")}\n`);
+}
+
+// ── Command handlers ────────────────────────────────────────────────
+
+async function handleCreate(cmd) {
+  const { tabId, cwd, model, effort, systemPrompt, skipPerms, allowedTools } = cmd;
+
+  if (sessions.has(tabId)) {
+    emit({ evt: "error", tabId, code: "duplicate", message: "Session already exists for this tab" });
+    return;
+  }
+
+  const abortController = new AbortController();
+
+  // Streaming input mode: we create an async iterable that yields user messages
+  // on demand. When the SDK needs input (emits result), the frontend sends a
+  // "send" command which resolves the pending promise in the queue.
+  let inputResolve = null;
+  const inputQueue = [];
+
+  async function* inputStream() {
+    while (true) {
+      // Wait for next user message
+      const text = await new Promise((resolve) => {
+        if (inputQueue.length > 0) {
+          resolve(inputQueue.shift());
+        } else {
+          inputResolve = resolve;
+        }
+      });
+      if (text === null) return; // Sentinel: session killed
+      yield {
+        type: "user",
+        message: { role: "user", content: text },
+        parent_tool_use_id: null,
+      };
+    }
+  }
+
+  // Build options
+  const options = {
+    abortController,
+    cwd: cwd || process.cwd(),
+    model: model || undefined,
+    effort: effort || "high",
+    includePartialMessages: true,
+    settingSources: ["user", "project", "local"],
+  };
+
+  if (systemPrompt) {
+    options.systemPrompt = {
+      type: "preset",
+      preset: "claude_code",
+      append: systemPrompt,
+    };
+  }
+
+  if (skipPerms) {
+    options.permissionMode = "bypassPermissions";
+    options.allowDangerouslySkipPermissions = true;
+  } else {
+    // Use canUseTool callback to route permission requests to Anvil
+    options.canUseTool = async (toolName, input, opts) => {
+      const description = toolName === "Bash"
+        ? (input.command || "").slice(0, 200)
+        : toolName === "Edit" || toolName === "Write"
+          ? (input.file_path || "")
+          : JSON.stringify(input).slice(0, 200);
+
+      emit({
+        evt: "permission",
+        tabId,
+        tool: toolName,
+        description: String(description),
+        toolUseId: opts.toolUseID,
+      });
+
+      // Wait for permission response from frontend
+      return new Promise((resolve) => {
+        const session = sessions.get(tabId);
+        if (session) {
+          session.pendingPermission = { resolve, toolUseId: opts.toolUseID };
+        } else {
+          resolve({ behavior: "deny", message: "Session not found" });
+        }
+      });
+    };
+  }
+
+  if (allowedTools) {
+    options.allowedTools = allowedTools;
+  }
+
+  // Resume or fork if specified
+  if (cmd.sessionId) {
+    if (cmd.fork) {
+      options.resume = cmd.sessionId;
+      options.forkSession = true;
+    } else {
+      options.resume = cmd.sessionId;
+    }
+  }
+
+  const session = {
+    abortController,
+    inputQueue,
+    inputResolve: null,
+    pendingPermission: null,
+  };
+
+  // Start the query
+  const q = query({
+    prompt: inputStream(),
+    options,
+  });
+  session.query = q;
+  sessions.set(tabId, session);
+
+  // Store the inputResolve setter
+  session._setInputResolve = (fn) => { inputResolve = fn; };
+  session._pushInput = (text) => {
+    if (inputResolve) {
+      const resolve = inputResolve;
+      inputResolve = null;
+      resolve(text);
+    } else {
+      inputQueue.push(text);
+    }
+  };
+  // Fix: wire inputResolve through session object
+  const origInputResolve = inputResolve;
+  session._pushInput = (text) => {
+    if (inputResolve) {
+      const r = inputResolve;
+      inputResolve = null;
+      r(text);
+    } else {
+      inputQueue.push(text);
+    }
+  };
+
+  // Consume the async generator and emit events
+  consumeQuery(tabId, q).catch((err) => {
+    log(`Error in session ${tabId}:`, err.message);
+    emit({ evt: "error", tabId, code: "query_error", message: err.message });
+    emit({ evt: "exit", tabId, code: 1 });
+    sessions.delete(tabId);
+  });
+
+  emit({ evt: "status", tabId, status: "started", model: model || "default" });
+}
+
+async function consumeQuery(tabId, q) {
+  try {
+    for await (const msg of q) {
+      const session = sessions.get(tabId);
+      if (!session) break;
+
+      switch (msg.type) {
+        case "assistant": {
+          // BetaMessage has content blocks
+          const content = msg.message?.content || [];
+          for (const block of content) {
+            if (block.type === "text") {
+              emit({ evt: "assistant", tabId, text: block.text, streaming: false });
+            } else if (block.type === "tool_use") {
+              emit({
+                evt: "tool_use",
+                tabId,
+                tool: block.name,
+                input: block.input,
+                toolUseId: block.id,
+              });
+            } else if (block.type === "thinking") {
+              emit({ evt: "thinking", tabId, text: block.thinking || "" });
+            }
+          }
+          // Check for errors
+          if (msg.error) {
+            emit({ evt: "error", tabId, code: msg.error, message: `Assistant error: ${msg.error}` });
+          }
+          break;
+        }
+
+        case "stream_event": {
+          // Partial streaming events
+          const event = msg.event;
+          if (event?.type === "content_block_delta") {
+            const delta = event.delta;
+            if (delta?.type === "text_delta") {
+              emit({ evt: "assistant", tabId, text: delta.text, streaming: true });
+            } else if (delta?.type === "thinking_delta") {
+              emit({ evt: "thinking", tabId, text: delta.thinking || "" });
+            }
+          }
+          break;
+        }
+
+        case "user": {
+          // User message replay (during resume) — skip or emit as context
+          break;
+        }
+
+        case "result": {
+          emit({
+            evt: "result",
+            tabId,
+            cost: msg.total_cost_usd || 0,
+            inputTokens: msg.usage?.input_tokens || 0,
+            outputTokens: msg.usage?.output_tokens || 0,
+            cacheReadTokens: msg.usage?.cache_read_input_tokens || 0,
+            cacheWriteTokens: msg.usage?.cache_creation_input_tokens || 0,
+            turns: msg.num_turns || 0,
+            durationMs: msg.duration_ms || 0,
+            isError: msg.is_error || false,
+            sessionId: msg.session_id || "",
+          });
+          // After result, SDK waits for next input
+          emit({ evt: "input_required", tabId });
+          break;
+        }
+
+        case "system": {
+          if (msg.subtype === "status") {
+            emit({ evt: "status", tabId, status: msg.status || "idle", model: "" });
+          }
+          break;
+        }
+
+        case "tool_progress": {
+          emit({
+            evt: "progress",
+            tabId,
+            message: `${msg.tool_name}: ${msg.elapsed_time_seconds}s`,
+            tool: msg.tool_name,
+          });
+          break;
+        }
+
+        case "tool_use_summary": {
+          emit({
+            evt: "tool_result",
+            tabId,
+            tool: "summary",
+            output: msg.summary,
+            success: true,
+          });
+          break;
+        }
+
+        case "rate_limit_event": {
+          const info = msg.rate_limit_info;
+          emit({
+            evt: "error",
+            tabId,
+            code: "rate_limit",
+            message: info.status === "rejected"
+              ? `Rate limited. Resets at ${info.resetsAt ? new Date(info.resetsAt).toLocaleTimeString() : "unknown"}`
+              : `Rate limit warning: ${Math.round((info.utilization || 0) * 100)}% utilized`,
+          });
+          break;
+        }
+
+        default:
+          // Log unhandled message types for debugging
+          log(`Unhandled message type: ${msg.type}`);
+          break;
+      }
+    }
+  } finally {
+    // Query finished (generator exhausted)
+    const session = sessions.get(tabId);
+    if (session) {
+      sessions.delete(tabId);
+      emit({ evt: "exit", tabId, code: 0 });
+    }
+  }
+}
+
+function handleSend(cmd) {
+  const session = sessions.get(cmd.tabId);
+  if (!session) {
+    emit({ evt: "error", tabId: cmd.tabId, code: "not_found", message: "Session not found" });
+    return;
+  }
+  session._pushInput(cmd.text);
+}
+
+function handleKill(cmd) {
+  const session = sessions.get(cmd.tabId);
+  if (!session) return;
+
+  // Signal kill to input stream
+  session._pushInput(null);
+  session.abortController.abort();
+
+  // Resolve any pending permission
+  if (session.pendingPermission) {
+    session.pendingPermission.resolve({ behavior: "deny", message: "Session killed" });
+    session.pendingPermission = null;
+  }
+
+  session.query?.close();
+  sessions.delete(cmd.tabId);
+  emit({ evt: "exit", tabId: cmd.tabId, code: -1 });
+}
+
+function handlePermissionResponse(cmd) {
+  const session = sessions.get(cmd.tabId);
+  if (!session?.pendingPermission) {
+    log(`No pending permission for tab ${cmd.tabId}`);
+    return;
+  }
+
+  const { resolve } = session.pendingPermission;
+  session.pendingPermission = null;
+
+  if (cmd.allow) {
+    resolve({ behavior: "allow" });
+  } else {
+    resolve({ behavior: "deny", message: "Denied by user" });
+  }
+}
+
+async function handleSetModel(cmd) {
+  const session = sessions.get(cmd.tabId);
+  if (!session?.query) {
+    emit({ evt: "error", tabId: cmd.tabId, code: "not_found", message: "Session not found" });
+    return;
+  }
+  try {
+    await session.query.setModel(cmd.model);
+    emit({ evt: "status", tabId: cmd.tabId, status: "model_changed", model: cmd.model });
+  } catch (err) {
+    emit({ evt: "error", tabId: cmd.tabId, code: "set_model_error", message: err.message });
+  }
+}
+
+async function handleListSessions(cmd) {
+  try {
+    const options = {};
+    if (cmd.cwd) options.dir = cmd.cwd;
+    if (cmd.limit) options.limit = cmd.limit;
+    if (cmd.offset) options.offset = cmd.offset;
+
+    const sessions = await listSessions(options);
+    emit({
+      evt: "sessions",
+      tabId: cmd.tabId,
+      list: sessions.map((s) => ({
+        id: s.sessionId,
+        summary: s.summary,
+        lastModified: s.lastModified,
+        cwd: s.cwd || "",
+        firstPrompt: s.firstPrompt || "",
+        gitBranch: s.gitBranch || "",
+        createdAt: s.createdAt || s.lastModified,
+        customTitle: s.customTitle || "",
+        fileSize: s.fileSize || 0,
+      })),
+    });
+  } catch (err) {
+    emit({ evt: "error", tabId: cmd.tabId, code: "list_error", message: err.message });
+  }
+}
+
+async function handleGetMessages(cmd) {
+  try {
+    const options = {};
+    if (cmd.dir) options.dir = cmd.dir;
+    if (cmd.limit) options.limit = cmd.limit;
+    if (cmd.offset) options.offset = cmd.offset;
+
+    const messages = await getSessionMessages(cmd.sessionId, options);
+    emit({
+      evt: "messages",
+      tabId: cmd.tabId,
+      sessionId: cmd.sessionId,
+      messages: messages.map((m) => ({
+        type: m.type,
+        uuid: m.uuid,
+        message: m.message,
+      })),
+    });
+  } catch (err) {
+    emit({ evt: "error", tabId: cmd.tabId, code: "messages_error", message: err.message });
+  }
+}
+
+// ── Main loop: read JSON-lines from stdin ───────────────────────────
+
+const rl = createInterface({ input: process.stdin, terminal: false });
+
+rl.on("line", async (line) => {
+  let cmd;
+  try {
+    cmd = JSON.parse(line);
+  } catch {
+    log("Invalid JSON:", line);
+    return;
+  }
+
+  try {
+    switch (cmd.cmd) {
+      case "create":
+        await handleCreate(cmd);
+        break;
+      case "send":
+        handleSend(cmd);
+        break;
+      case "resume":
+        cmd.sessionId = cmd.sessionId;
+        await handleCreate(cmd);
+        break;
+      case "fork":
+        cmd.fork = true;
+        await handleCreate(cmd);
+        break;
+      case "kill":
+        handleKill(cmd);
+        break;
+      case "permission_response":
+        handlePermissionResponse(cmd);
+        break;
+      case "set_model":
+        await handleSetModel(cmd);
+        break;
+      case "list_sessions":
+        await handleListSessions(cmd);
+        break;
+      case "get_messages":
+        await handleGetMessages(cmd);
+        break;
+      default:
+        log("Unknown command:", cmd.cmd);
+        break;
+    }
+  } catch (err) {
+    log(`Error handling ${cmd.cmd}:`, err.message);
+    if (cmd.tabId) {
+      emit({ evt: "error", tabId: cmd.tabId, code: "handler_error", message: err.message });
+    }
+  }
+});
+
+rl.on("close", () => {
+  log("stdin closed, shutting down");
+  // Kill all active sessions
+  for (const [tabId, session] of sessions) {
+    session._pushInput(null);
+    session.abortController.abort();
+    session.query?.close();
+  }
+  sessions.clear();
+  process.exit(0);
+});
+
+process.on("uncaughtException", (err) => {
+  log("Uncaught exception:", err.message, err.stack);
+});
+
+process.on("unhandledRejection", (err) => {
+  log("Unhandled rejection:", err);
+});
+
+log("Anvil sidecar started");
+emit({ evt: "ready", tabId: "_control" });

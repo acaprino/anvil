@@ -60,9 +60,21 @@ pub struct TotalStats {
 }
 
 #[derive(Debug, Clone, Serialize)]
+pub struct ProjectStats {
+    pub project: String,
+    pub input_tokens: u64,
+    pub output_tokens: u64,
+    pub cache_creation_tokens: u64,
+    pub cache_read_tokens: u64,
+    pub messages: u64,
+    pub cost: f64,
+}
+
+#[derive(Debug, Clone, Serialize)]
 pub struct TokenUsageStats {
     pub days: Vec<DayStats>,
     pub models: Vec<ModelStats>,
+    pub projects: Vec<ProjectStats>,
     pub totals: TotalStats,
 }
 
@@ -118,7 +130,23 @@ pub fn compute_usage(days_back: u64) -> Result<TokenUsageStats, String> {
 
     let mut day_map: HashMap<String, Accum> = HashMap::new();
     let mut model_map: HashMap<String, Accum> = HashMap::new();
+    let mut project_map: HashMap<String, Accum> = HashMap::new();
     let mut session_ids: std::collections::HashSet<String> = std::collections::HashSet::new();
+
+    // Extract project name from JSONL path: ~/.claude/projects/<encoded-path>/<file>.jsonl
+    // The encoded path is the parent dir name, URL-encoded from the original project path.
+    fn project_from_path(path: &std::path::Path) -> String {
+        path.parent()
+            .and_then(|p| p.file_name())
+            .and_then(|n| n.to_str())
+            .map(|encoded| {
+                // URL-decode the directory name to get the original path
+                let decoded = encoded.replace("%2F", "/").replace("%5C", "\\").replace("%3A", ":");
+                // Extract just the last path component as project name
+                decoded.replace('\\', "/").rsplit('/').find(|s| !s.is_empty()).unwrap_or(&decoded).to_string()
+            })
+            .unwrap_or_else(|| "unknown".to_string())
+    }
 
     for path in &jsonl_files {
         let file = match std::fs::File::open(path) {
@@ -208,6 +236,16 @@ pub fn compute_usage(days_back: u64) -> Result<TokenUsageStats, String> {
             mdl.cache_read_tokens += cache_read;
             mdl.messages += 1;
             mdl.cost += cost;
+
+            // Accumulate by project
+            let proj_name = project_from_path(path);
+            let proj = project_map.entry(proj_name).or_insert_with(Accum::new);
+            proj.input_tokens += input;
+            proj.output_tokens += output;
+            proj.cache_creation_tokens += cache_create;
+            proj.cache_read_tokens += cache_read;
+            proj.messages += 1;
+            proj.cost += cost;
         }
     }
 
@@ -241,6 +279,21 @@ pub fn compute_usage(days_back: u64) -> Result<TokenUsageStats, String> {
         .collect();
     models.sort_by(|a, b| b.cost.partial_cmp(&a.cost).unwrap_or(std::cmp::Ordering::Equal));
 
+    // Build sorted project stats
+    let mut projects: Vec<ProjectStats> = project_map
+        .into_iter()
+        .map(|(project, a)| ProjectStats {
+            project,
+            input_tokens: a.input_tokens,
+            output_tokens: a.output_tokens,
+            cache_creation_tokens: a.cache_creation_tokens,
+            cache_read_tokens: a.cache_read_tokens,
+            messages: a.messages,
+            cost: a.cost,
+        })
+        .collect();
+    projects.sort_by(|a, b| b.cost.partial_cmp(&a.cost).unwrap_or(std::cmp::Ordering::Equal));
+
     // Compute totals
     let totals = TotalStats {
         input_tokens: days.iter().map(|d| d.input_tokens).sum(),
@@ -265,6 +318,7 @@ pub fn compute_usage(days_back: u64) -> Result<TokenUsageStats, String> {
     Ok(TokenUsageStats {
         days,
         models,
+        projects,
         totals,
     })
 }
@@ -328,6 +382,7 @@ fn empty_stats() -> TokenUsageStats {
     TokenUsageStats {
         days: vec![],
         models: vec![],
+        projects: vec![],
         totals: TotalStats {
             input_tokens: 0,
             output_tokens: 0,

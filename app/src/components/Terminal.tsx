@@ -6,7 +6,10 @@ import { Unicode11Addon } from "@xterm/addon-unicode11";
 import { getCurrentWebview } from "@tauri-apps/api/webview";
 import { readText, writeText } from "@tauri-apps/plugin-clipboard-manager";
 import { spawnClaude, writePty, resizePty, sendHeartbeat, killSession, saveClipboardImage } from "../hooks/usePty";
+import { spawnAgent, sendAgentMessage, killAgent, respondPermission } from "../hooks/useAgentSession";
+import { renderAgentEvent } from "../ansiRenderer";
 import { getXtermTheme } from "../themes";
+import type { AgentEvent, ThemeColors } from "../types";
 import Minimap from "./Minimap";
 import BookmarkList from "./BookmarkList";
 import "@xterm/xterm/css/xterm.css";
@@ -55,11 +58,6 @@ const ANSI_LOGO_PARTS = [
   `${LOGO_COLORS.OUTLINE}     ${LOGO_COLORS.BLUE}██▓▓▓▓▓▓▓▓▓▓▓▓▓██`,
 ];
 const ANSI_LOGO = ANSI_LOGO_PARTS.join("\r\n") + LOGO_COLORS.R;
-/** CUP row offset = full logo height.  Claude's CUP row 1 must map to the
- *  first real row AFTER the logo so nothing overwrites the anvil art.
- *  Using the full logo length (not subtracting a banner-line guess) makes
- *  this independent of how many lines Claude's own banner occupies. */
-const CUP_ROW_OFFSET = ANSI_LOGO_PARTS.length;
 
 /** Strip characters outside the Basic Multilingual Plane (emoji, supplementary chars)
  *  that become surrogate pairs in UTF-16.  On Windows, passing these through command-line
@@ -129,6 +127,7 @@ function sanitizePastedText(text: string): string {
 
 interface TerminalProps {
   tabId: string;
+  tabType: "terminal" | "agent";
   projectPath: string;
   toolIdx: number;
   modelIdx: number;
@@ -137,6 +136,7 @@ interface TerminalProps {
   autocompact: boolean;
   systemPrompt: string;
   themeIdx: number;
+  themeColors: ThemeColors;
   fontFamily: string;
   fontSize: number;
   isActive: boolean;
@@ -145,10 +145,12 @@ interface TerminalProps {
   onExit: (tabId: string, code: number) => void;
   onError: (tabId: string, msg: string) => void;
   onRequestClose: (tabId: string) => void;
+  onAgentResult?: (tabId: string, event: AgentEvent) => void;
 }
 
 export default memo(function Terminal({
   tabId,
+  tabType,
   projectPath,
   toolIdx,
   modelIdx,
@@ -157,6 +159,7 @@ export default memo(function Terminal({
   autocompact,
   systemPrompt,
   themeIdx,
+  themeColors,
   fontFamily,
   fontSize,
   isActive,
@@ -165,6 +168,7 @@ export default memo(function Terminal({
   onExit,
   onError,
   onRequestClose,
+  onAgentResult,
 }: TerminalProps) {
   const containerRef = useRef<HTMLDivElement>(null);
   const xtermRef = useRef<XTerm | null>(null);
@@ -187,6 +191,19 @@ export default memo(function Terminal({
   const onExitRef = useRef(onExit);
   const onErrorRef = useRef(onError);
   const pasteInFlightRef = useRef(false);
+  const onAgentResultRef = useRef(onAgentResult);
+  // Agent mode state machine: idle → awaiting_input → processing → awaiting_permission
+  const agentInputStateRef = useRef<"idle" | "awaiting_input" | "processing" | "awaiting_permission">("idle");
+  const agentInputBufRef = useRef("");
+  const themeColorsRef = useRef(themeColors);
+
+  useEffect(() => {
+    themeColorsRef.current = themeColors;
+  }, [themeColors]);
+
+  useEffect(() => {
+    onAgentResultRef.current = onAgentResult;
+  }, [onAgentResult]);
 
   useEffect(() => {
     isActiveRef.current = isActive;
@@ -402,6 +419,73 @@ export default memo(function Terminal({
         return;
       }
       if (!sessionIdRef.current) return;
+
+      // ── Agent mode input handling ──
+      if (tabType === "agent") {
+        const state = agentInputStateRef.current;
+
+        if (state === "awaiting_permission") {
+          // Only accept Y/y/N/n/Enter
+          if (data === "Y" || data === "y" || data === "\r") {
+            xterm.write("Y\r\n");
+            respondPermission(tabIdRef.current, true).catch(() => {});
+            agentInputStateRef.current = "processing";
+          } else if (data === "N" || data === "n") {
+            xterm.write("N\r\n");
+            respondPermission(tabIdRef.current, false).catch(() => {});
+            agentInputStateRef.current = "processing";
+          }
+          return;
+        }
+
+        if (state === "awaiting_input") {
+          if (data === "\r") {
+            // Send the buffered input
+            const text = agentInputBufRef.current;
+            agentInputBufRef.current = "";
+            xterm.write("\r\n");
+            if (text) {
+              agentInputStateRef.current = "processing";
+              sendAgentMessage(tabIdRef.current, text).catch(() => {});
+            }
+          } else if (data === "\x7f" || data === "\b") {
+            // Backspace
+            if (agentInputBufRef.current.length > 0) {
+              agentInputBufRef.current = agentInputBufRef.current.slice(0, -1);
+              xterm.write("\b \b");
+            }
+          } else if (data === "\x03") {
+            // Ctrl+C — clear input
+            agentInputBufRef.current = "";
+            xterm.write("^C\r\n");
+            // Re-show prompt
+            const rendered = renderAgentEvent({ type: "inputRequired" }, themeColorsRef.current, xterm.cols);
+            xterm.write(rendered);
+          } else if (data.length === 1 && data >= " ") {
+            // Regular character
+            agentInputBufRef.current += data;
+            xterm.write(data);
+          } else if (data.length > 1 && !data.startsWith("\x1b")) {
+            // Pasted text (multi-char, non-escape)
+            agentInputBufRef.current += data;
+            xterm.write(data);
+          }
+          return;
+        }
+
+        if (state === "processing") {
+          if (data === "\x03") {
+            // Ctrl+C during processing — interrupt
+            killAgent(tabIdRef.current).catch(() => {});
+          }
+          return;
+        }
+
+        // idle — ignore input until SDK is ready
+        return;
+      }
+
+      // ── PTY mode input handling ──
       // Bookmark: when user presses Enter, record the buffer line as a prompt bookmark.
       // Debounce: skip if same line as last bookmark (rapid Enter presses, empty confirms).
       if (data === "\r") {
@@ -463,8 +547,8 @@ export default memo(function Terminal({
       if (cols !== lastCols || rows !== lastRows) {
         lastCols = cols;
         lastRows = rows;
-        // Report fewer rows for Claude to match the logo row offset
-        const ptyRows = toolIdx === 0 ? Math.max(rows - CUP_ROW_OFFSET, 10) : rows;
+        // Agent tabs don't have a PTY to resize
+        if (tabType === "agent") return;
         if (sessionIdRef.current) {
           if (debounce) {
             // Capture session ID now — session may change within the 80ms window.
@@ -472,11 +556,11 @@ export default memo(function Terminal({
             clearTimeout(resizeTimer);
             resizeTimer = setTimeout(() => {
               if (sessionIdRef.current === capturedSid) {
-                resizePty(capturedSid, cols, ptyRows).catch(() => {});
+                resizePty(capturedSid, cols, rows).catch(() => {});
               }
             }, 80);
           } else {
-            resizePty(sessionIdRef.current, cols, ptyRows).catch(() => {});
+            resizePty(sessionIdRef.current, cols, rows).catch(() => {});
           }
         }
       }
@@ -513,19 +597,76 @@ export default memo(function Terminal({
       const cols = xterm.cols;
       const rows = xterm.rows;
 
+      // ── Agent mode branch ────────────────────────────────────
+      if (tabType === "agent") {
+        // Show logo directly
+        xterm.write(ESC_CURSOR_HIDE + ANSI_LOGO + "\r\n\r\n");
+
+        const MODELS = ["claude-sonnet-4-6", "claude-opus-4-6", "claude-haiku-4-5", "claude-sonnet-4-6[1m]", "claude-opus-4-6[1m]"];
+        const EFFORTS = ["high", "medium", "low"];
+        const modelId = MODELS[modelIdx] || "";
+        const effortId = EFFORTS[effortIdx] || "high";
+
+        const handleAgentEvent = (event: AgentEvent) => {
+          if (cancelled) return;
+          const rendered = renderAgentEvent(event, themeColorsRef.current, xterm.cols);
+          if (rendered) xterm.write(rendered);
+
+          if (event.type === "inputRequired") {
+            agentInputStateRef.current = "awaiting_input";
+            agentInputBufRef.current = "";
+          } else if (event.type === "permission") {
+            agentInputStateRef.current = "awaiting_permission";
+          } else if (event.type === "result") {
+            onAgentResultRef.current?.(tabIdRef.current, event);
+          } else if (event.type === "exit") {
+            exitedRef.current = true;
+            onExitRef.current(tabIdRef.current, event.code);
+          }
+
+          if (!isActiveRef.current) {
+            onNewOutputRef.current(tabIdRef.current);
+          }
+        };
+
+        spawnAgent(
+          tabId,
+          projectPath,
+          modelId,
+          effortId,
+          stripNonBmpAndSurrogates(systemPrompt),
+          skipPerms,
+          handleAgentEvent,
+        )
+          .then((channel) => {
+            if (cancelled) {
+              killAgent(tabId).catch(() => {});
+              return;
+            }
+            sessionIdRef.current = tabId; // Use tabId as session key for agent mode
+            channelRef.current = channel;
+            onSessionCreatedRef.current(tabIdRef.current, tabId);
+          })
+          .catch((err) => {
+            if (cancelled) return;
+            onErrorRef.current(tabIdRef.current, String(err));
+            xterm.write(`\r\n\x1b[91mError: ${String(err).replace(/\x1b/g, "")}\x1b[0m`);
+          });
+
+        // Early return — skip PTY spawn
+        return;
+      }
+
+      // ── PTY mode (terminal tabs) ─────────────────────────────
       // For Claude (toolIdx 0), buffer initial output until we detect the
       // horizontal separator (─────). Replace Claude's block-char logo with
       // the Anvil ASCII logo, keep everything else (separator, prompt, status).
+      // No CUP offset or PTY row reduction — Claude uses the full terminal.
+      // The logo acts as a startup splash that gets overwritten when Claude
+      // redraws (e.g. on resize or when output fills the screen).
       let bannerBuf: string | null = toolIdx === 0 ? "" : null;
-      // Row offset for cursor positioning: our logo (15 lines) is taller than
-      // Claude's banner (3 lines). Claude's TUI uses absolute CUP sequences
-      // (ESC[row;colH), so we offset all row numbers by the difference.
-      // Reset to 0 on screen clear (ESC[2J/3J) since Claude redraws from scratch.
-      let cupRowOffset = 0;
-      /** Detect the last screen-clear in a chunk. Returns the index after
-       *  the final clear sequence, or -1 if none found. Finds the last match
-       *  so that paired clears (ESC[2J + ESC[3J) are both passed through. */
-      const screenClearIdx = (s: string): number => {
+      /** Detect screen clear (ESC[2J/3J) for banner re-interception on resize. */
+      const hasScreenClear = (s: string): number => {
         let maxEnd = -1;
         for (const seq of ["\x1b[2J", "\x1b[3J"]) {
           const i = s.lastIndexOf(seq);
@@ -533,20 +674,6 @@ export default memo(function Terminal({
         }
         return maxEnd;
       };
-      /** Adjust absolute cursor positioning sequences in data by cupRowOffset.
-       *  Screen clear handling is done in the data callback before this is called. */
-      const adjustCup = (s: string): string => {
-        if (cupRowOffset === 0) return s;
-        return s.replace(/\x1b\[(\d*)(;[\d]*)?([Hfd])/g, (_match, row, col, cmd) => {
-          const newRow = (row ? parseInt(row, 10) : 1) + cupRowOffset;
-          return `\x1b[${newRow}${col || ""}${cmd}`;
-        });
-      };
-
-      // For Claude, report fewer rows so its TUI layout accounts for the
-      // taller logo.  Claude positions its status bar at the "bottom" row;
-      // adjustCup then adds CUP_ROW_OFFSET, landing it at the true bottom.
-      const ptyRows = toolIdx === 0 ? Math.max(rows - CUP_ROW_OFFSET, 10) : rows;
 
       spawnClaude(
         projectPath,
@@ -557,7 +684,7 @@ export default memo(function Terminal({
         autocompact,
         stripNonBmpAndSurrogates(systemPrompt),
         cols,
-        ptyRows,
+        rows,
         (data: string) => {
           if (bannerBuf !== null) {
             bannerBuf += data;
@@ -567,34 +694,21 @@ export default memo(function Terminal({
                 ? bannerBuf.slice(endMatch.index + 1) // keep from \n onward (the ─── line)
                 : bannerBuf; // fallback: write everything
               bannerBuf = null;
-              if (endMatch) {
-                cupRowOffset = CUP_ROW_OFFSET;
-                xtermRef.current?.write(ESC_CURSOR_HIDE + ANSI_LOGO + "\r\n" + adjustCup(rest));
-              } else {
-                // Overflow fallback — no logo substitution, no offset
-                cupRowOffset = 0;
-                xtermRef.current?.write(rest);
-              }
+              xtermRef.current?.write(ESC_CURSOR_HIDE + ANSI_LOGO + "\r\n" + rest);
             }
             return;
           }
           // On screen clear (resize redraw), Claude redraws its banner.
-          // Split at the clear: write the clear to the terminal, then
-          // re-activate banner buffering for what follows.
+          // Re-activate banner buffering to replace it with our logo again.
           if (toolIdx === 0) {
-            const clearEnd = screenClearIdx(data);
+            const clearEnd = hasScreenClear(data);
             if (clearEnd !== -1) {
-              cupRowOffset = 0;
-              // Write everything up to and including the clear sequence
               const pre = data.slice(0, clearEnd);
               xtermRef.current?.write(pre);
-              // Buffer the remainder for banner interception
               bannerBuf = data.slice(clearEnd);
               return;
             }
           }
-          // Adjust cursor positioning for the taller logo
-          data = adjustCup(data);
           // Hide cursor during ALL output, not just cursor-repositioning
           // sequences. Rapid writes cause the cursor to flash at intermediate
           // positions ("ghost caret" flickering through the text). A debounced
@@ -731,7 +845,11 @@ export default memo(function Terminal({
       unlistenDragDrop?.();
       observer.disconnect();
       if (sessionIdRef.current) {
-        killSession(sessionIdRef.current).catch(() => {});
+        if (tabType === "agent") {
+          killAgent(sessionIdRef.current).catch(() => {});
+        } else {
+          killSession(sessionIdRef.current).catch(() => {});
+        }
       }
       if (channelRef.current) {
         channelRef.current.onmessage = () => {};

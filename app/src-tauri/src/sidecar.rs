@@ -1,0 +1,375 @@
+use std::collections::HashMap;
+use std::io::{BufRead, BufReader, Write};
+use std::os::windows::process::CommandExt;
+use std::process::{Child, Command, Stdio};
+use std::sync::atomic::{AtomicBool, Ordering};
+use std::sync::{Arc, Mutex};
+use std::thread;
+
+use serde::{Deserialize, Serialize};
+use tauri::ipc::Channel;
+
+/// Events emitted by the sidecar, forwarded to the frontend via Tauri IPC.
+#[derive(Clone, Debug, Serialize)]
+#[serde(rename_all = "camelCase", tag = "type")]
+pub enum AgentEvent {
+    Assistant { text: String, streaming: bool },
+    ToolUse { tool: String, input: serde_json::Value },
+    ToolResult { tool: String, output: String, success: bool },
+    Permission { tool: String, description: String },
+    InputRequired {},
+    Thinking { text: String },
+    Status { status: String, model: String },
+    Progress { message: String },
+    Result {
+        cost: f64,
+        input_tokens: u64,
+        output_tokens: u64,
+        cache_read_tokens: u64,
+        cache_write_tokens: u64,
+        turns: u32,
+        duration_ms: u64,
+        is_error: bool,
+        session_id: String,
+    },
+    Error { code: String, message: String },
+    Exit { code: i32 },
+}
+
+/// Sidecar JSON event from stdout (deserialized).
+#[derive(Debug, Deserialize)]
+#[serde(rename_all = "camelCase")]
+struct SidecarEvent {
+    evt: String,
+    #[serde(default)]
+    tab_id: String,
+    // Optional fields — different events use different subsets
+    #[serde(default)]
+    text: String,
+    #[serde(default)]
+    streaming: bool,
+    #[serde(default)]
+    tool: String,
+    #[serde(default)]
+    input: Option<serde_json::Value>,
+    #[serde(default)]
+    output: String,
+    #[serde(default)]
+    success: bool,
+    #[serde(default)]
+    description: String,
+    #[serde(default)]
+    status: String,
+    #[serde(default)]
+    model: String,
+    #[serde(default)]
+    message: String,
+    #[serde(default)]
+    code: String,
+    #[serde(default)]
+    cost: f64,
+    #[serde(default)]
+    input_tokens: u64,
+    #[serde(default)]
+    output_tokens: u64,
+    #[serde(default)]
+    cache_read_tokens: u64,
+    #[serde(default)]
+    cache_write_tokens: u64,
+    #[serde(default)]
+    turns: u32,
+    #[serde(default)]
+    duration_ms: u64,
+    #[serde(default)]
+    is_error: bool,
+    #[serde(default)]
+    session_id: String,
+    // For list_sessions response
+    #[serde(default)]
+    list: Option<serde_json::Value>,
+    // For get_messages response
+    #[serde(default)]
+    messages: Option<serde_json::Value>,
+}
+
+type ChannelMap = Arc<Mutex<HashMap<String, Channel<AgentEvent>>>>;
+type OneshotMap = Arc<Mutex<HashMap<String, tokio::sync::oneshot::Sender<serde_json::Value>>>>;
+
+pub struct SidecarManager {
+    stdin: Mutex<Option<std::process::ChildStdin>>,
+    channels: ChannelMap,
+    oneshots: OneshotMap,
+    available: AtomicBool,
+    _process: Mutex<Option<Child>>,
+}
+
+impl SidecarManager {
+    pub fn new() -> Self {
+        let manager = Self {
+            stdin: Mutex::new(None),
+            channels: Arc::new(Mutex::new(HashMap::new())),
+            oneshots: Arc::new(Mutex::new(HashMap::new())),
+            available: AtomicBool::new(false),
+            _process: Mutex::new(None),
+        };
+
+        // Try to find node.exe and start the sidecar
+        match find_node() {
+            Some(node_path) => {
+                log_info!("sidecar: found node at {}", node_path);
+                match manager.start_sidecar(&node_path) {
+                    Ok(()) => {
+                        manager.available.store(true, Ordering::SeqCst);
+                        log_info!("sidecar: started successfully");
+                    }
+                    Err(e) => {
+                        log_error!("sidecar: failed to start: {e}");
+                    }
+                }
+            }
+            None => {
+                log_warn!("sidecar: node.exe not found — agent SDK unavailable");
+            }
+        }
+
+        manager
+    }
+
+    fn start_sidecar(&self, node_path: &str) -> Result<(), String> {
+        // Resolve sidecar script path relative to the executable
+        let exe_dir = std::env::current_exe()
+            .map_err(|e| format!("Cannot determine exe path: {e}"))?
+            .parent()
+            .ok_or("Cannot determine exe dir")?
+            .to_path_buf();
+
+        // In dev mode, the sidecar is at ../../sidecar/sidecar.js relative to the exe
+        // In production, it's bundled as a resource
+        let sidecar_path = if exe_dir.join("sidecar").join("sidecar.js").exists() {
+            exe_dir.join("sidecar").join("sidecar.js")
+        } else {
+            // Dev mode: go up from target/debug/ to project root
+            let dev_path = exe_dir
+                .parent() // target/debug -> target
+                .and_then(|p| p.parent()) // target -> app/src-tauri
+                .and_then(|p| p.parent()) // app/src-tauri -> app
+                .and_then(|p| p.parent()) // app -> project root
+                .map(|p| p.join("sidecar").join("sidecar.js"));
+
+            match dev_path {
+                Some(p) if p.exists() => p,
+                _ => return Err("sidecar.js not found".to_string()),
+            }
+        };
+
+        log_info!("sidecar: script at {}", sidecar_path.display());
+
+        let mut child = Command::new(node_path)
+            .arg(sidecar_path)
+            .stdin(Stdio::piped())
+            .stdout(Stdio::piped())
+            .stderr(Stdio::piped())
+            .creation_flags(0x08000000) // CREATE_NO_WINDOW
+            .spawn()
+            .map_err(|e| format!("Failed to spawn sidecar: {e}"))?;
+
+        let stdout = child.stdout.take().ok_or("No stdout")?;
+        let stderr = child.stderr.take().ok_or("No stderr")?;
+        let stdin = child.stdin.take().ok_or("No stdin")?;
+
+        *self.stdin.lock().unwrap() = Some(stdin);
+        *self._process.lock().unwrap() = Some(child);
+
+        // Stdout reader thread: parse JSON-lines and route to channels
+        let channels = Arc::clone(&self.channels);
+        let oneshots = Arc::clone(&self.oneshots);
+        thread::Builder::new()
+            .name("sidecar-stdout".into())
+            .spawn(move || {
+                let reader = BufReader::new(stdout);
+                for line in reader.lines() {
+                    let line: String = match line {
+                        Ok(l) => l,
+                        Err(e) => {
+                            log_error!("sidecar stdout read error: {e}");
+                            break;
+                        }
+                    };
+
+                    if line.is_empty() {
+                        continue;
+                    }
+
+                    let event: SidecarEvent = match serde_json::from_str(&line) {
+                        Ok(e) => e,
+                        Err(e) => {
+                            log_warn!("sidecar: malformed JSON: {e} — line: {}", &line[..line.len().min(200)]);
+                            continue;
+                        }
+                    };
+
+                    let tab_id = &event.tab_id;
+
+                    // Handle oneshot responses (list_sessions, get_messages)
+                    if event.evt == "sessions" || event.evt == "messages" {
+                        let value = if event.evt == "sessions" {
+                            event.list.unwrap_or(serde_json::Value::Array(vec![]))
+                        } else {
+                            serde_json::json!({
+                                "sessionId": event.session_id,
+                                "messages": event.messages.unwrap_or(serde_json::Value::Array(vec![]))
+                            })
+                        };
+
+                        if let Some(sender) = oneshots.lock().unwrap().remove(tab_id) {
+                            let _ = sender.send(value);
+                        }
+                        continue;
+                    }
+
+                    // Convert to AgentEvent and send via channel
+                    let agent_event = match event.evt.as_str() {
+                        "assistant" => AgentEvent::Assistant { text: event.text, streaming: event.streaming },
+                        "tool_use" => AgentEvent::ToolUse { tool: event.tool, input: event.input.unwrap_or(serde_json::Value::Null) },
+                        "tool_result" => AgentEvent::ToolResult { tool: event.tool, output: event.output, success: event.success },
+                        "permission" => AgentEvent::Permission { tool: event.tool, description: event.description },
+                        "input_required" => AgentEvent::InputRequired {},
+                        "thinking" => AgentEvent::Thinking { text: event.text },
+                        "status" => AgentEvent::Status { status: event.status, model: event.model },
+                        "progress" => AgentEvent::Progress { message: event.message },
+                        "result" => AgentEvent::Result {
+                            cost: event.cost,
+                            input_tokens: event.input_tokens,
+                            output_tokens: event.output_tokens,
+                            cache_read_tokens: event.cache_read_tokens,
+                            cache_write_tokens: event.cache_write_tokens,
+                            turns: event.turns,
+                            duration_ms: event.duration_ms,
+                            is_error: event.is_error,
+                            session_id: event.session_id,
+                        },
+                        "error" => AgentEvent::Error { code: event.code, message: event.message },
+                        "exit" => AgentEvent::Exit { code: event.code.parse().unwrap_or(-1) },
+                        "ready" => {
+                            log_info!("sidecar: ready signal received");
+                            continue;
+                        }
+                        other => {
+                            log_warn!("sidecar: unknown event type: {other}");
+                            continue;
+                        }
+                    };
+
+                    // Send to the matching channel
+                    if let Some(channel) = channels.lock().unwrap().get(tab_id) {
+                        let _ = channel.send(agent_event.clone());
+                    }
+
+                    // On exit, remove the channel
+                    if matches!(&agent_event, AgentEvent::Exit { .. }) {
+                        channels.lock().unwrap().remove(tab_id);
+                    }
+                }
+                log_warn!("sidecar: stdout reader thread exiting");
+            })
+            .map_err(|e| format!("Failed to spawn stdout reader: {e}"))?;
+
+        // Stderr reader thread: log everything
+        thread::Builder::new()
+            .name("sidecar-stderr".into())
+            .spawn(move || {
+                let reader = BufReader::new(stderr);
+                for line in reader.lines() {
+                    match line {
+                        Ok(l) => log_info!("sidecar stderr: {l}"),
+                        Err(_) => break,
+                    }
+                }
+            })
+            .map_err(|e| format!("Failed to spawn stderr reader: {e}"))?;
+
+        Ok(())
+    }
+
+    pub fn available(&self) -> bool {
+        self.available.load(Ordering::SeqCst)
+    }
+
+    /// Send a JSON command to the sidecar.
+    pub fn send_command(&self, cmd: &serde_json::Value) -> Result<(), String> {
+        let mut stdin_guard = self.stdin.lock().unwrap();
+        let stdin = stdin_guard.as_mut().ok_or("Sidecar not running")?;
+        let line = serde_json::to_string(cmd).map_err(|e| format!("JSON error: {e}"))?;
+        stdin
+            .write_all(line.as_bytes())
+            .and_then(|_| stdin.write_all(b"\n"))
+            .and_then(|_| stdin.flush())
+            .map_err(|e| format!("Failed to write to sidecar: {e}"))
+    }
+
+    /// Register a channel for a tab, so events get routed to it.
+    pub fn register_channel(&self, tab_id: &str, channel: Channel<AgentEvent>) {
+        self.channels.lock().unwrap().insert(tab_id.to_string(), channel);
+    }
+
+    /// Remove a tab's channel.
+    pub fn unregister_channel(&self, tab_id: &str) {
+        self.channels.lock().unwrap().remove(tab_id);
+    }
+
+    /// Register a oneshot for receiving a single response (list_sessions, get_messages).
+    pub fn register_oneshot(&self, key: &str) -> tokio::sync::oneshot::Receiver<serde_json::Value> {
+        let (tx, rx) = tokio::sync::oneshot::channel();
+        self.oneshots.lock().unwrap().insert(key.to_string(), tx);
+        rx
+    }
+
+    /// Kill all sessions and shut down the sidecar.
+    pub fn shutdown(&self) {
+        log_info!("sidecar: shutting down");
+        // Close stdin — this triggers the sidecar's rl.on('close') handler
+        *self.stdin.lock().unwrap() = None;
+        // Kill the process if still running
+        if let Some(ref mut child) = *self._process.lock().unwrap() {
+            let _ = child.kill();
+        }
+    }
+}
+
+impl Drop for SidecarManager {
+    fn drop(&mut self) {
+        self.shutdown();
+    }
+}
+
+/// Find node.exe on PATH or in known locations.
+fn find_node() -> Option<String> {
+    // Try PATH first
+    if let Ok(path) = which::which("node") {
+        return Some(path.to_string_lossy().to_string());
+    }
+
+    // Try %LOCALAPPDATA%\anvil\node\node.exe
+    if let Ok(local) = std::env::var("LOCALAPPDATA") {
+        let custom = std::path::PathBuf::from(&local)
+            .join("anvil")
+            .join("node")
+            .join("node.exe");
+        if custom.exists() {
+            return Some(custom.to_string_lossy().to_string());
+        }
+    }
+
+    // Try common install locations
+    let program_files = std::env::var("ProgramFiles").unwrap_or_default();
+    if !program_files.is_empty() {
+        let node = std::path::PathBuf::from(&program_files)
+            .join("nodejs")
+            .join("node.exe");
+        if node.exists() {
+            return Some(node.to_string_lossy().to_string());
+        }
+    }
+
+    None
+}

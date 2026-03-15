@@ -5,6 +5,7 @@ use tauri::State;
 use crate::tools;
 use crate::projects::{self, ProjectInfo, Settings, UsageData};
 use crate::session::{PtyEvent, SessionRegistry};
+use crate::sidecar::{AgentEvent, SidecarManager};
 use crate::usage_stats::{self, TokenUsageStats};
 use crate::watcher::ProjectWatcher;
 
@@ -500,4 +501,183 @@ pub async fn load_builtin_prompts() -> Result<Vec<crate::prompts::BuiltinPrompt>
     tokio::task::spawn_blocking(crate::prompts::load_builtin_prompts)
         .await
         .map_err(|e| format!("Task failed: {e}"))
+}
+
+// ── Agent SDK commands ──────────────────────────────────────────────
+
+#[tauri::command]
+pub fn sidecar_available(
+    sidecar: State<'_, Arc<SidecarManager>>,
+) -> bool {
+    sidecar.available()
+}
+
+#[tauri::command]
+pub fn spawn_agent(
+    sidecar: State<'_, Arc<SidecarManager>>,
+    tab_id: String,
+    project_path: String,
+    model: String,
+    effort: String,
+    system_prompt: String,
+    skip_perms: bool,
+    on_event: Channel<AgentEvent>,
+) -> Result<(), String> {
+    if !sidecar.available() {
+        return Err("Agent SDK not available (Node.js not found)".to_string());
+    }
+    log_info!("spawn_agent: tab={tab_id}, project={project_path}, model={model}");
+
+    sidecar.register_channel(&tab_id, on_event);
+    sidecar.send_command(&serde_json::json!({
+        "cmd": "create",
+        "tabId": tab_id,
+        "cwd": project_path,
+        "model": if model.is_empty() { serde_json::Value::Null } else { serde_json::Value::String(model) },
+        "effort": effort,
+        "systemPrompt": if system_prompt.is_empty() { serde_json::Value::Null } else { serde_json::Value::String(system_prompt) },
+        "skipPerms": skip_perms,
+    }))
+}
+
+#[tauri::command]
+pub fn agent_send(
+    sidecar: State<'_, Arc<SidecarManager>>,
+    tab_id: String,
+    text: String,
+) -> Result<(), String> {
+    sidecar.send_command(&serde_json::json!({
+        "cmd": "send",
+        "tabId": tab_id,
+        "text": text,
+    }))
+}
+
+#[tauri::command]
+pub fn agent_resume(
+    sidecar: State<'_, Arc<SidecarManager>>,
+    tab_id: String,
+    session_id: String,
+    project_path: String,
+    model: String,
+    effort: String,
+    on_event: Channel<AgentEvent>,
+) -> Result<(), String> {
+    if !sidecar.available() {
+        return Err("Agent SDK not available".to_string());
+    }
+    log_info!("agent_resume: tab={tab_id}, session={session_id}");
+    sidecar.register_channel(&tab_id, on_event);
+    sidecar.send_command(&serde_json::json!({
+        "cmd": "resume",
+        "tabId": tab_id,
+        "sessionId": session_id,
+        "cwd": project_path,
+        "model": if model.is_empty() { serde_json::Value::Null } else { serde_json::Value::String(model) },
+        "effort": effort,
+    }))
+}
+
+#[tauri::command]
+pub fn agent_fork(
+    sidecar: State<'_, Arc<SidecarManager>>,
+    tab_id: String,
+    session_id: String,
+    project_path: String,
+    model: String,
+    effort: String,
+    on_event: Channel<AgentEvent>,
+) -> Result<(), String> {
+    if !sidecar.available() {
+        return Err("Agent SDK not available".to_string());
+    }
+    log_info!("agent_fork: tab={tab_id}, session={session_id}");
+    sidecar.register_channel(&tab_id, on_event);
+    sidecar.send_command(&serde_json::json!({
+        "cmd": "fork",
+        "tabId": tab_id,
+        "sessionId": session_id,
+        "cwd": project_path,
+        "model": if model.is_empty() { serde_json::Value::Null } else { serde_json::Value::String(model) },
+        "effort": effort,
+    }))
+}
+
+#[tauri::command]
+pub fn agent_kill(
+    sidecar: State<'_, Arc<SidecarManager>>,
+    tab_id: String,
+) -> Result<(), String> {
+    log_info!("agent_kill: tab={tab_id}");
+    sidecar.unregister_channel(&tab_id);
+    sidecar.send_command(&serde_json::json!({
+        "cmd": "kill",
+        "tabId": tab_id,
+    }))
+}
+
+#[tauri::command]
+pub fn agent_permission(
+    sidecar: State<'_, Arc<SidecarManager>>,
+    tab_id: String,
+    allow: bool,
+) -> Result<(), String> {
+    sidecar.send_command(&serde_json::json!({
+        "cmd": "permission_response",
+        "tabId": tab_id,
+        "allow": allow,
+    }))
+}
+
+#[tauri::command]
+pub fn agent_set_model(
+    sidecar: State<'_, Arc<SidecarManager>>,
+    tab_id: String,
+    model: String,
+) -> Result<(), String> {
+    sidecar.send_command(&serde_json::json!({
+        "cmd": "set_model",
+        "tabId": tab_id,
+        "model": model,
+    }))
+}
+
+#[tauri::command]
+pub async fn list_agent_sessions(
+    sidecar: State<'_, Arc<SidecarManager>>,
+    cwd: Option<String>,
+) -> Result<serde_json::Value, String> {
+    if !sidecar.available() {
+        return Err("Agent SDK not available".to_string());
+    }
+    let key = format!("_sessions_{}", uuid::Uuid::new_v4());
+    let rx = sidecar.register_oneshot(&key);
+    sidecar.send_command(&serde_json::json!({
+        "cmd": "list_sessions",
+        "tabId": key,
+        "cwd": cwd,
+    }))?;
+
+    rx.await.map_err(|_| "Sidecar did not respond".to_string())
+}
+
+#[tauri::command]
+pub async fn get_agent_messages(
+    sidecar: State<'_, Arc<SidecarManager>>,
+    session_id: String,
+    dir: Option<String>,
+) -> Result<serde_json::Value, String> {
+    if !sidecar.available() {
+        return Err("Agent SDK not available".to_string());
+    }
+    let key = format!("_messages_{}", uuid::Uuid::new_v4());
+    let rx = sidecar.register_oneshot(&key);
+    sidecar.send_command(&serde_json::json!({
+        "cmd": "get_messages",
+        "tabId": key,
+        "sessionId": session_id,
+        "dir": dir,
+    }))?;
+
+    rx.await.map_err(|_| "Sidecar did not respond".to_string())
 }

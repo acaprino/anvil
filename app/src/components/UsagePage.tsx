@@ -34,9 +34,20 @@ interface TotalStats {
   cost: number;
 }
 
+interface ProjectStats {
+  project: string;
+  input_tokens: number;
+  output_tokens: number;
+  cache_creation_tokens: number;
+  cache_read_tokens: number;
+  messages: number;
+  cost: number;
+}
+
 interface TokenUsageStats {
   days: DayStats[];
   models: ModelStats[];
+  projects: ProjectStats[];
   totals: TotalStats;
 }
 
@@ -71,7 +82,8 @@ function buildTotalsBox(t: TotalStats): string {
   Cache Read         ${padLeft(fmtTokens(t.cache_read_tokens), 10)}
   Messages           ${padLeft(t.messages.toLocaleString(), 10)}
   Sessions           ${padLeft(t.sessions.toLocaleString(), 10)}
-  Total Cost         ${padLeft(fmtCost(t.cost), 10)}`;
+  Total Cost         ${padLeft(fmtCost(t.cost), 10)}
+  Avg/Session        ${padLeft(t.sessions > 0 ? fmtCost(t.cost / t.sessions) : "—", 10)}`;
 }
 
 function buildModelsTable(models: ModelStats[]): string {
@@ -80,6 +92,16 @@ function buildModelsTable(models: ModelStats[]): string {
   const sep = "  " + "\u2500".repeat(header.length - 2);
   const rows = models.map((m) =>
     `  ${pad(m.model, 10)} ${padLeft(fmtTokens(m.input_tokens), 9)} ${padLeft(fmtTokens(m.output_tokens), 9)} ${padLeft(fmtTokens(m.cache_creation_tokens), 9)} ${padLeft(fmtTokens(m.cache_read_tokens), 9)} ${padLeft(m.messages.toLocaleString(), 6)} ${padLeft(fmtCost(m.cost), 9)}`
+  );
+  return [header, sep, ...rows].join("\n");
+}
+
+function buildProjectsTable(projects: ProjectStats[]): string {
+  if (projects.length === 0) return "  No project data";
+  const header = `  ${pad("Project", 18)} ${padLeft("Input", 9)} ${padLeft("Output", 9)} ${padLeft("Msgs", 6)} ${padLeft("Cost", 9)}`;
+  const sep = "  " + "\u2500".repeat(header.length - 2);
+  const rows = projects.slice(0, 10).map((p) =>
+    `  ${pad(p.project.slice(0, 18), 18)} ${padLeft(fmtTokens(p.input_tokens), 9)} ${padLeft(fmtTokens(p.output_tokens), 9)} ${padLeft(p.messages.toLocaleString(), 6)} ${padLeft(fmtCost(p.cost), 9)}`
   );
   return [header, sep, ...rows].join("\n");
 }
@@ -158,6 +180,9 @@ function UsagePage({ tabId, onRequestClose, isActive }: UsagePageProps) {
 
         <Banner title="BY MODEL" />
         <Box>{buildModelsTable(stats.models)}</Box>
+
+        <Banner title="BY PROJECT" />
+        <Box>{buildProjectsTable(stats.projects)}</Box>
 
         <Banner title="LAST 7 DAYS" />
         <pre className="gsd-text">{buildDaysChart(stats.days)}</pre>
