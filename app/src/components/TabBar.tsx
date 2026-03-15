@@ -1,6 +1,6 @@
 import { memo, useState, useCallback, useRef, useEffect } from "react";
 import { getCurrentWindow } from "@tauri-apps/api/window";
-import { Tab, MODELS } from "../types";
+import { Tab } from "../types";
 import "./TabBar.css";
 
 const appWindow = getCurrentWindow();
@@ -89,16 +89,19 @@ export default memo(function TabBar({ tabs, activeTabId, onActivate, onClose, on
         {tabs.map((tab) => {
           const isActive = tab.id === activeTabId;
           const isClosing = closingIds.has(tab.id);
-          const label =
-            tab.type === "terminal"
-              ? `${tab.projectName ?? "Terminal"}${tab.modelIdx != null ? ` \u2014 ${MODELS[tab.modelIdx].display}` : ""}`
+          const baseName =
+            tab.type === "terminal" || tab.type === "agent"
+              ? (tab.projectName ?? "Terminal")
               : tab.type === "about"
                 ? "About"
                 : tab.type === "usage"
                   ? "Usage"
                   : tab.type === "system-prompt"
                     ? "System Prompts"
-                    : "New Tab";
+                    : tab.type === "sessions"
+                      ? "Sessions"
+                      : "New Tab";
+          const label = tab.tagline ? `${baseName} \u2014 ${tab.tagline}` : baseName;
 
           return (
             <div

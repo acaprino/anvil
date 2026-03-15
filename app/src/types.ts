@@ -20,6 +20,7 @@ export interface Tab {
   agentSessionId?: string;
   hasNewOutput?: boolean;
   exitCode?: number | null;
+  tagline?: string;
 }
 
 export interface ProjectInfo {
@@ -48,6 +49,8 @@ export interface Settings {
   single_project_dirs: string[];
   project_labels: Record<string, string>;
   use_agent_sdk?: boolean;
+  vertical_tabs?: boolean;
+  sidebar_width?: number;
 }
 
 export interface UsageEntry {

@@ -6,6 +6,8 @@ import { getCurrentWindow } from "@tauri-apps/api/window";
 import { useTabManager } from "./hooks/useTabManager";
 import { ProjectsProvider, useProjectsContext } from "./contexts/ProjectsContext";
 import TabBar from "./components/TabBar";
+import TitleBar from "./components/TitleBar";
+import TabSidebar from "./components/TabSidebar";
 import Terminal from "./components/Terminal";
 import NewTabPage from "./components/NewTabPage";
 import AboutPage from "./components/AboutPage";
@@ -56,6 +58,26 @@ function AppContent() {
   const themeIdx = settings?.theme_idx ?? 0;
   const fontFamily = settings?.font_family ?? "Cascadia Code";
   const fontSize = settings?.font_size ?? 14;
+  const verticalTabs = settings?.vertical_tabs ?? false;
+  const sidebarWidth = settings?.sidebar_width ?? 200;
+  const appRef = useRef<HTMLDivElement>(null);
+  const isResizingRef = useRef(false);
+
+  const setIsResizing = useCallback((resizing: boolean) => {
+    isResizingRef.current = resizing;
+    appRef.current?.classList.toggle("resizing", resizing);
+  }, []);
+
+  const handleResizeWidth = useCallback((width: number) => {
+    updateSettings({ sidebar_width: width });
+  }, [updateSettings]);
+
+  // Sync sidebar width to CSS custom property (skip during active resize to prevent snap-back)
+  useEffect(() => {
+    if (verticalTabs && !isResizingRef.current) {
+      document.documentElement.style.setProperty("--sidebar-width", `${sidebarWidth}px`);
+    }
+  }, [verticalTabs, sidebarWidth]);
 
   // Load prompts from .md files (source of truth) on mount and when settings change
   const [allPrompts, setAllPrompts] = useState<SystemPrompt[]>([]);
@@ -165,6 +187,10 @@ function AppContent() {
     console.error(`Tab ${tabId} error:`, msg);
   }, []);
 
+  const handleTaglineChange = useCallback((tabId: string, tagline: string) => {
+    updateTab(tabId, { tagline });
+  }, [updateTab]);
+
   const tabsRef = useRef(tabs);
   tabsRef.current = tabs;
   const settingsRef = useRef(settings);
@@ -200,8 +226,10 @@ function AppContent() {
     SW: () => appWindow.startResizeDragging("SouthWest"),
   }), []);
 
+  const appClassName = `app${verticalTabs ? " vertical-tabs" : ""}`;
+
   return (
-    <div className="app">
+    <div ref={appRef} className={appClassName}>
       <div className="resize-handle top" onMouseDown={resizeHandlers.N} />
       <div className="resize-handle bottom" onMouseDown={resizeHandlers.S} />
       <div className="resize-handle left" onMouseDown={resizeHandlers.W} />
@@ -210,16 +238,35 @@ function AppContent() {
       <div className="resize-handle top-right" onMouseDown={resizeHandlers.NE} />
       <div className="resize-handle bottom-left" onMouseDown={resizeHandlers.SW} />
       <div className="resize-handle bottom-right" onMouseDown={resizeHandlers.SE} />
-      <TabBar
-        tabs={tabs}
-        activeTabId={activeTabId}
-        onActivate={activateTab}
-        onClose={closeTab}
-        onAdd={addTabAndResetFilter}
-        onSaveToProjects={handleSaveToProjects}
-        onToggleAbout={toggleAboutTab}
-        onToggleUsage={toggleUsageTab}
-      />
+      {verticalTabs ? (
+        <>
+          <TitleBar />
+          <TabSidebar
+            tabs={tabs}
+            activeTabId={activeTabId}
+            sidebarWidth={sidebarWidth}
+            onActivate={activateTab}
+            onClose={closeTab}
+            onAdd={addTabAndResetFilter}
+            onSaveToProjects={handleSaveToProjects}
+            onToggleAbout={toggleAboutTab}
+            onToggleUsage={toggleUsageTab}
+            onResizeWidth={handleResizeWidth}
+            onResizing={setIsResizing}
+          />
+        </>
+      ) : (
+        <TabBar
+          tabs={tabs}
+          activeTabId={activeTabId}
+          onActivate={activateTab}
+          onClose={closeTab}
+          onAdd={addTabAndResetFilter}
+          onSaveToProjects={handleSaveToProjects}
+          onToggleAbout={toggleAboutTab}
+          onToggleUsage={toggleUsageTab}
+        />
+      )}
       <div className="tab-content">
         {tabs.map((tab) => {
           const isActive = tab.id === activeTabId;
@@ -308,6 +355,7 @@ function AppContent() {
                     onExit={handleExit}
                     onError={handleError}
                     onRequestClose={closeTab}
+                    onTaglineChange={handleTaglineChange}
                   />
                 </ErrorBoundary>
               ) : (

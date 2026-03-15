@@ -166,6 +166,7 @@ interface TerminalProps {
   onError: (tabId: string, msg: string) => void;
   onRequestClose: (tabId: string) => void;
   onAgentResult?: (tabId: string, event: AgentEvent) => void;
+  onTaglineChange?: (tabId: string, tagline: string) => void;
 }
 
 export default memo(function Terminal({
@@ -189,6 +190,7 @@ export default memo(function Terminal({
   onError,
   onRequestClose,
   onAgentResult,
+  onTaglineChange,
 }: TerminalProps) {
   const containerRef = useRef<HTMLDivElement>(null);
   const xtermRef = useRef<XTerm | null>(null);
@@ -212,6 +214,7 @@ export default memo(function Terminal({
   const onErrorRef = useRef(onError);
   const pasteInFlightRef = useRef(false);
   const onAgentResultRef = useRef(onAgentResult);
+  const onTaglineChangeRef = useRef(onTaglineChange);
   // Agent mode state machine: idle → awaiting_input → processing → awaiting_permission
   const agentInputStateRef = useRef<"idle" | "awaiting_input" | "processing" | "awaiting_permission">("idle");
   const agentInputBufRef = useRef("");
@@ -224,6 +227,10 @@ export default memo(function Terminal({
   useEffect(() => {
     onAgentResultRef.current = onAgentResult;
   }, [onAgentResult]);
+
+  useEffect(() => {
+    onTaglineChangeRef.current = onTaglineChange;
+  }, [onTaglineChange]);
 
   useEffect(() => {
     isActiveRef.current = isActive;
@@ -467,6 +474,8 @@ export default memo(function Terminal({
             if (text) {
               agentInputStateRef.current = "processing";
               xterm.write(ESC_CURSOR_HIDE);
+              xterm.write("\x1b[2m\u28FB Thinking...\x1b[0m");
+              onTaglineChangeRef.current?.(tabIdRef.current, "Thinking…");
               sendAgentMessage(tabIdRef.current, text).catch(() => {});
             }
           } else if (data === "\x7f" || data === "\b") {
@@ -637,13 +646,26 @@ export default memo(function Terminal({
             agentInputStateRef.current = "awaiting_input";
             agentInputBufRef.current = "";
             xterm.write(ESC_CURSOR_SHOW);
+            onTaglineChangeRef.current?.(tabIdRef.current, "");
           } else if (event.type === "permission") {
             agentInputStateRef.current = "awaiting_permission";
+            onTaglineChangeRef.current?.(tabIdRef.current, `Permission: ${event.tool}`);
+          } else if (event.type === "toolUse") {
+            const inp = event.input as Record<string, string> | undefined;
+            const detail = event.tool === "Bash" ? (inp?.command || "").slice(0, 40)
+              : event.tool === "Edit" || event.tool === "Write" || event.tool === "Read"
+                ? (inp?.file_path || "").split(/[/\\]/).pop() || ""
+                : "";
+            onTaglineChangeRef.current?.(tabIdRef.current, detail ? `${event.tool}: ${detail}` : event.tool);
+          } else if (event.type === "thinking") {
+            onTaglineChangeRef.current?.(tabIdRef.current, "Thinking…");
           } else if (event.type === "result") {
             onAgentResultRef.current?.(tabIdRef.current, event);
+            onTaglineChangeRef.current?.(tabIdRef.current, "");
           } else if (event.type === "exit") {
             exitedRef.current = true;
             onExitRef.current(tabIdRef.current, event.code);
+            onTaglineChangeRef.current?.(tabIdRef.current, "");
           }
 
           if (!isActiveRef.current) {
