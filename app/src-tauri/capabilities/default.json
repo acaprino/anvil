@@ -32,6 +32,18 @@
     "allow-save-clipboard-image",
     "shell:allow-open",
     "allow-get-token-usage",
-    "allow-list-directory"
+    "allow-list-directory",
+    "allow-load-builtin-prompts",
+    "allow-set-window-corner-preference",
+    "allow-sidecar-available",
+    "allow-spawn-agent",
+    "allow-agent-send",
+    "allow-agent-resume",
+    "allow-agent-fork",
+    "allow-agent-kill",
+    "allow-agent-permission",
+    "allow-agent-set-model",
+    "allow-list-agent-sessions",
+    "allow-get-agent-messages"
   ]
 }
