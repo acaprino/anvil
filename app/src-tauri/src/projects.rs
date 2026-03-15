@@ -82,7 +82,7 @@ fn default_sidebar_width() -> u32 {
 }
 
 fn default_project_dirs() -> Vec<String> {
-    let dir = std::env::var("EMBER_PROJECTS_DIR")
+    let dir = std::env::var("ANVIL_PROJECTS_DIR")
         .unwrap_or_else(|_| DEFAULT_PROJECTS_DIR.to_string());
     vec![dir]
 }

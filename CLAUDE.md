@@ -1,6 +1,6 @@
 # Anvil
 
-A Windows-only Tauri 2 desktop app for selecting and launching Claude Code CLI sessions in tabbed terminals.
+A Windows-only Tauri 2 desktop app for selecting and launching Claude Code Agent SDK sessions in a tabbed interface.
 
 ## Quick Start
 
@@ -13,37 +13,45 @@ A Windows-only Tauri 2 desktop app for selecting and launching Claude Code CLI s
 
 - **Frontend**: React 19 + TypeScript 5 + Vite 6 (in `app/`)
 - **Backend**: Rust + Tauri 2 (in `app/src-tauri/`)
-- **Terminal**: xterm.js 5.5 with WebGL renderer + canvas fallback
-- **Themes**: 10 dark themes (Catppuccin Mocha default), selectable via F9
+- **Sidecar**: Node.js process running Agent SDK, bridged via JSON-RPC (in `sidecar/`)
+- **Display**: xterm.js 5.5 with WebGL renderer + canvas fallback (renders ANSI agent output)
+- **Themes**: 10 dark themes (Catppuccin Mocha default), selectable via Ctrl+, settings
 
 ## Key Paths
 
-- `app/src/components/` - TabBar, Terminal, Minimap, ProjectList, StatusBar, NewTabPage, AboutPage, Modal, ErrorBoundary
-- `app/src/hooks/` - useTabManager, useProjects
+- `app/src/components/` - TabBar, TabSidebar, TitleBar, Terminal, Minimap, BookmarkList, ProjectList, InfoStrip, SessionConfig, NewTabPage, AboutPage, UsagePage, SystemPromptPage, SessionBrowser, Modal, ErrorBoundary, AsciiLogo, FolderTree, SegmentedControl
+- `app/src/hooks/` - useTabManager, useProjects, useAgentSession
+- `app/src/ansiRenderer.ts` - Converts AgentEvent objects to styled ANSI text for xterm display
 - `app/src/contexts/ProjectsContext.tsx` - Shared project state
 - `app/src/themes.ts` - Theme application to CSS variables and xterm
-- `app/src/types.ts` - Type definitions, model/effort/sort/theme constants
-- `app/src-tauri/src/` - Rust backend: main.rs, sidecar.rs, projects.rs, commands.rs, logging.rs, watcher.rs
+- `app/src/types.ts` - Type definitions, model/effort/sort/theme constants, AgentEvent types
+- `app/src-tauri/src/` - Rust backend: main.rs, sidecar.rs, projects.rs, commands.rs, prompts.rs, usage_stats.rs, marketplace.rs, logging.rs, watcher.rs
+- `sidecar/sidecar.js` - Node.js process running Agent SDK, communicates with Rust via JSON-lines
 
 For detailed architecture, IPC protocol, and development guide, see `docs/TECHNICAL.md`.
 
 ## Tool
 
-- Claude Code (Agent SDK via `@anthropic-ai/claude-agent-sdk`)
+- Claude Code (Agent SDK via Node.js sidecar process)
 
-## Models (Tab to cycle, Claude only)
+## Models (Tab to cycle)
 
 sonnet / opus / haiku / sonnet [1M] / opus [1M]
 
 ## Keyboard Shortcuts
 
+### Global (App.tsx)
 - **Ctrl+T**: New tab
 - **Ctrl+F4**: Close tab
 - **Ctrl+Tab / Ctrl+Shift+Tab**: Next/previous tab
-- **Ctrl+C**: Copy selection (or SIGINT if no selection)
-- **Ctrl+V**: Paste (text or image path)
-- **Tab**: Cycle model (Claude only)
-- **F2**: Cycle effort level (high/medium/low, Claude only)
+- **F12**: Toggle about tab
+- **Ctrl+U**: Toggle usage/stats tab
+- **Ctrl+Shift+P**: Toggle system prompts tab
+- **Ctrl+Shift+H**: Toggle sessions browser tab
+
+### Project Picker (NewTabPage active, no modal open)
+- **Tab**: Cycle model
+- **F2**: Cycle effort level (high/medium/low)
 - **F3**: Cycle sort order (alpha/last used/most used)
 - **F4**: Toggle skip-permissions
 - **F5**: Create new project
@@ -51,14 +59,15 @@ sonnet / opus / haiku / sonnet [1M] / opus [1M]
 - **F8**: Label selected project
 - **F10**: Quick launch (arbitrary directory)
 - **Ctrl+,**: Open settings (themes, font, directories, behavior)
-- **Ctrl+U**: Toggle usage/stats tab
-- **Ctrl+Shift+P**: Toggle system prompts tab
-- **F12**: Toggle about tab
 - **Enter**: Launch selected project
 - **Esc**: Clear filter / close tab
 - **Backspace**: Delete last filter character
 - **Type to filter**: Case-insensitive project search
 - **Arrow keys / PageUp / PageDown / Home / End**: Navigate project list
+
+### Agent Tab (Terminal.tsx active)
+- **Ctrl+C**: Copy selection (or send interrupt if no selection)
+- **Ctrl+V**: Paste (text or image path)
 
 ## Design Tokens
 
@@ -69,7 +78,7 @@ CSS custom properties in `App.css` `:root`:
 - Radii: `--radius-sm` (4px), `--radius-md` (6px)
 - Overlays: `--hover-overlay`, `--hover-overlay-subtle`, `--backdrop`
 - Z-index: `--z-resize`, `--z-modal`
-- Layout: `--tab-height`, `--info-strip-height`, `--tab-max-width`
+- Layout: `--tab-height`, `--info-strip-height`, `--title-bar-height`, `--sidebar-width`, `--sidebar-min-width`, `--sidebar-max-width`
 - Font: `--font-mono`
 
 ## Architecture Notes
@@ -94,9 +103,9 @@ CSS custom properties in `App.css` `:root`:
 
 - Windows-only. Do not add cross-platform abstractions unless asked.
 - Agent sessions are killed on tab close via `killAgent()`.
-- Dropped file paths are validated against safe Windows path characters before sending to the agent.
 - Hidden directories (starting with `.`) are excluded from project scanning.
 - Default project directory is `D:\Projects`, overridable via settings (multiple directories supported).
+- Environment variable `ANVIL_PROJECTS_DIR` overrides the default project directory.
 
 ## ASCII Logo
 
