@@ -341,7 +341,7 @@ function handlePermissionResponse(cmd) {
 
   if (cmd.allow) {
     const result = { behavior: "allow" };
-    if (cmd.updatedPermissions && cmd.updatedPermissions.length > 0) {
+    if (Array.isArray(cmd.updatedPermissions) && cmd.updatedPermissions.length > 0) {
       result.updatedPermissions = cmd.updatedPermissions;
     }
     resolve(result);

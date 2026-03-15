@@ -1,5 +1,5 @@
 import { invoke, Channel } from "@tauri-apps/api/core";
-import type { AgentEvent, SessionInfo } from "../types";
+import type { AgentEvent, SessionInfo, PermissionSuggestion } from "../types";
 
 export async function spawnAgent(
   tabId: string,
@@ -80,7 +80,7 @@ export async function killAgent(tabId: string): Promise<void> {
   await invoke("agent_kill", { tabId });
 }
 
-export async function respondPermission(tabId: string, allow: boolean, updatedPermissions?: unknown[]): Promise<void> {
+export async function respondPermission(tabId: string, allow: boolean, updatedPermissions?: PermissionSuggestion[]): Promise<void> {
   await invoke("agent_permission", { tabId, allow, updatedPermissions: updatedPermissions || null });
 }
 

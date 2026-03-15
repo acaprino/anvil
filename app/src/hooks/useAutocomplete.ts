@@ -98,9 +98,15 @@ export function useAutocomplete(
     const xterm = xtermRef.current;
     if (!xterm) return;
 
+    // Capture current cursor position — clearGhost must restore it here,
+    // not at the saved ghost position, to avoid shifting the cursor when
+    // called after xterm.write() has already advanced it.
+    const curRow = xterm.buffer.active.cursorY + xterm.buffer.active.baseY + 1;
+    const curCol = xterm.buffer.active.cursorX + 1;
+
     const { row, col } = savedCursorRef.current;
     xterm.write(`\x1b[${row};${col}H${ESC_ERASE_EOL}`);
-    xterm.write(`\x1b[${row};${col}H`);
+    xterm.write(`\x1b[${curRow};${curCol}H`);
 
     ghostVisibleRef.current = false;
     hasSuggestionRef.current = false;
