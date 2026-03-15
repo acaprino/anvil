@@ -461,6 +461,8 @@ export default memo(function Terminal({
       if (cols !== lastCols || rows !== lastRows) {
         lastCols = cols;
         lastRows = rows;
+        // Report fewer rows for Claude to match the logo row offset
+        const ptyRows = toolIdx === 0 ? Math.max(rows - CUP_ROW_OFFSET, 10) : rows;
         if (sessionIdRef.current) {
           if (debounce) {
             // Capture session ID now — session may change within the 80ms window.
@@ -468,11 +470,11 @@ export default memo(function Terminal({
             clearTimeout(resizeTimer);
             resizeTimer = setTimeout(() => {
               if (sessionIdRef.current === capturedSid) {
-                resizePty(capturedSid, cols, rows).catch(() => {});
+                resizePty(capturedSid, cols, ptyRows).catch(() => {});
               }
             }, 80);
           } else {
-            resizePty(sessionIdRef.current, cols, rows).catch(() => {});
+            resizePty(sessionIdRef.current, cols, ptyRows).catch(() => {});
           }
         }
       }
@@ -539,6 +541,11 @@ export default memo(function Terminal({
         });
       };
 
+      // For Claude, report fewer rows so its TUI layout accounts for the
+      // taller logo.  Claude positions its status bar at the "bottom" row;
+      // adjustCup then adds CUP_ROW_OFFSET, landing it at the true bottom.
+      const ptyRows = toolIdx === 0 ? Math.max(rows - CUP_ROW_OFFSET, 10) : rows;
+
       spawnClaude(
         projectPath,
         toolIdx,
@@ -548,7 +555,7 @@ export default memo(function Terminal({
         autocompact,
         stripNonBmpAndSurrogates(systemPrompt),
         cols,
-        rows,
+        ptyRows,
         (data: string) => {
           if (bannerBuf !== null) {
             bannerBuf += data;
