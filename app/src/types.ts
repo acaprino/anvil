@@ -229,14 +229,15 @@ export type AgentEvent =
   | { type: "assistant"; text: string; streaming: boolean }
   | { type: "toolUse"; tool: string; input: unknown }
   | { type: "toolResult"; tool: string; output: string; success: boolean }
-  | { type: "permission"; tool: string; description: string; suggestions?: PermissionSuggestion[] }
+  | { type: "permission"; tool: string; description: string; toolUseId: string; suggestions?: PermissionSuggestion[] }
   | { type: "inputRequired" }
   | { type: "thinking"; text: string }
-  | { type: "status"; status: string; model: string }
+  | { type: "status"; status: string; model: string; sessionId: string }
   | { type: "progress"; message: string }
-  | { type: "result"; cost: number; inputTokens: number; outputTokens: number; cacheReadTokens: number; cacheWriteTokens: number; turns: number; durationMs: number; isError: boolean; sessionId: string }
+  | { type: "result"; cost: number; inputTokens: number; outputTokens: number; cacheReadTokens: number; cacheWriteTokens: number; turns: number; durationMs: number; isError: boolean; sessionId: string; contextWindow: number }
   | { type: "todo"; todos: TodoItem[] }
   | { type: "autocomplete"; suggestions: string[]; seq: number }
+  | { type: "rateLimit"; utilization: number }
   | { type: "error"; code: string; message: string }
   | { type: "exit"; code: number };
 
@@ -249,7 +250,7 @@ export type ChatMessage =
   | { id: string; role: "tool"; tool: string; input: unknown; output?: string; success?: boolean; timestamp: number }
   | { id: string; role: "permission"; tool: string; description: string; suggestions?: PermissionSuggestion[]; resolved?: boolean; allowed?: boolean; timestamp: number }
   | { id: string; role: "thinking"; text: string; ended?: boolean; timestamp: number }
-  | { id: string; role: "result"; cost: number; inputTokens: number; outputTokens: number; cacheReadTokens: number; cacheWriteTokens: number; turns: number; durationMs: number; isError: boolean; sessionId: string; timestamp: number }
+  | { id: string; role: "result"; cost: number; inputTokens: number; outputTokens: number; cacheReadTokens: number; cacheWriteTokens: number; turns: number; durationMs: number; isError: boolean; sessionId: string; contextWindow: number; timestamp: number }
   | { id: string; role: "error"; code: string; message: string; timestamp: number }
   | { id: string; role: "status"; status: string; model: string; timestamp: number }
   | { id: string; role: "todo"; todos: TodoItem[]; timestamp: number };

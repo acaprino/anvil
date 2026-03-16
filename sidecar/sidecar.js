@@ -96,14 +96,23 @@ async function handleCreate(cmd) {
         permissionSuggestions: opts.suggestions || [],
       });
 
-      // Wait for permission response from frontend
+      // Wait for permission response from frontend (timeout after 5 minutes)
       const result = await new Promise((resolve) => {
         const session = sessions.get(tabId);
-        if (session) {
-          session.pendingPermission = { resolve, toolUseId: opts.toolUseID };
-        } else {
+        if (!session) {
           resolve({ behavior: "deny", message: "Session not found" });
+          return;
         }
+        const timeout = setTimeout(() => {
+          if (session.pendingPermission?.toolUseId === opts.toolUseID) {
+            session.pendingPermission = null;
+            resolve({ behavior: "deny", message: "Permission request timed out" });
+          }
+        }, 300_000);
+        session.pendingPermission = {
+          resolve: (val) => { clearTimeout(timeout); resolve(val); },
+          toolUseId: opts.toolUseID,
+        };
       });
       return result;
     };
@@ -126,7 +135,6 @@ async function handleCreate(cmd) {
   const session = {
     abortController,
     inputQueue,
-    inputResolve: null,
     pendingPermission: null,
   };
 
@@ -241,6 +249,10 @@ async function consumeQuery(tabId, q, sessionRef) {
           // Extract usage safely — SDK may nest under .usage or use top-level fields
           const usage = msg.usage || {};
           const safeNum = (v) => (typeof v === "number" && !Number.isNaN(v)) ? v : 0;
+          // Extract context window from modelUsage (Record<string, ModelUsage>)
+          const modelUsage = msg.modelUsage || {};
+          const firstModel = Object.values(modelUsage)[0];
+          const contextWindow = safeNum(firstModel?.contextWindow);
           emit({
             evt: "result",
             tabId,
@@ -253,6 +265,7 @@ async function consumeQuery(tabId, q, sessionRef) {
             durationMs: safeNum(msg.duration_ms),
             isError: msg.is_error || false,
             sessionId: msg.session_id || "",
+            contextWindow,
           });
           // After result, SDK waits for next input
           emit({ evt: "input_required", tabId });
@@ -260,7 +273,12 @@ async function consumeQuery(tabId, q, sessionRef) {
         }
 
         case "system": {
-          if (msg.subtype === "status") {
+          if (msg.subtype === "init") {
+            const sid = msg.session_id || msg.data?.session_id || "";
+            if (sid) {
+              emit({ evt: "status", tabId, status: "init", model: "", sessionId: sid });
+            }
+          } else if (msg.subtype === "status") {
             emit({ evt: "status", tabId, status: msg.status || "idle", model: "" });
           }
           break;
@@ -289,14 +307,20 @@ async function consumeQuery(tabId, q, sessionRef) {
 
         case "rate_limit_event": {
           const info = msg.rate_limit_info;
-          emit({
-            evt: "error",
-            tabId,
-            code: "rate_limit",
-            message: info.status === "rejected"
-              ? `Rate limited. Resets at ${info.resetsAt ? new Date(info.resetsAt).toLocaleTimeString() : "unknown"}`
-              : `Rate limit warning: ${Math.round((info.utilization || 0) * 100)}% utilized`,
-          });
+          if (info.status === "rejected") {
+            emit({
+              evt: "error",
+              tabId,
+              code: "rate_limit",
+              message: `Rate limited. Resets at ${info.resetsAt ? new Date(info.resetsAt).toLocaleTimeString() : "unknown"}`,
+            });
+          } else {
+            emit({
+              evt: "rateLimit",
+              tabId,
+              utilization: info.utilization || 0,
+            });
+          }
           break;
         }
 
@@ -543,22 +567,33 @@ async function handleAutocomplete(cmd) {
     const response = await client.messages.create({
       model: AUTOCOMPLETE_MODEL,
       max_tokens: 150,
-      system: "You are an autocomplete engine for a coding assistant. Given the user's partial input and recent conversation context, suggest 3 short completions of what they might be typing. Return ONLY a JSON array of 3 strings, each being the completion text (the part that comes AFTER what they already typed). Be concise. Example: if input is \"fix the bug in\", return [\" the auth middleware\", \" src/login.ts\", \" the database connection\"]",
+      system: "You are an autocomplete engine for a coding assistant. Given the user's partial input and recent conversation context, suggest 3 short completions of what they might be typing. Each completion is the text that comes AFTER what they already typed. Be concise.",
       messages,
+      output_config: {
+        format: {
+          type: "json_schema",
+          schema: {
+            type: "object",
+            properties: {
+              completions: {
+                type: "array",
+                items: { type: "string" },
+              },
+            },
+            required: ["completions"],
+            additionalProperties: false,
+          },
+        },
+      },
     }, { signal: controller.signal });
     clearTimeout(timer);
 
-    // Parse the response
-    const text = response.content[0]?.text || "[]";
+    // Parse the structured output
+    const text = response.content.find(b => b.type === "text")?.text || "{}";
     let suggestions;
     try {
-      // Extract JSON array from response (may have surrounding text)
-      const match = text.match(/\[[\s\S]*\]/);
-      suggestions = match ? JSON.parse(match[0]) : [];
-      // Validate: must be array of strings
-      if (!Array.isArray(suggestions) || !suggestions.every((s) => typeof s === "string")) {
-        suggestions = [];
-      }
+      const parsed = JSON.parse(text);
+      suggestions = Array.isArray(parsed.completions) ? parsed.completions.filter(s => typeof s === "string").slice(0, 3) : [];
     } catch {
       suggestions = [];
     }
@@ -592,7 +627,6 @@ rl.on("line", async (line) => {
         handleSend(cmd);
         break;
       case "resume":
-        cmd.sessionId = cmd.sessionId;
         await handleCreate(cmd);
         break;
       case "fork":

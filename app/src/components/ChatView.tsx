@@ -45,6 +45,9 @@ export default memo(function ChatView({
   const [droppedFiles, setDroppedFiles] = useState<string[]>([]);
   const [sidebarOpen, setSidebarOpen] = useState(false);
   const [showMiniInput, setShowMiniInput] = useState(false);
+  const [rateLimitUtil, setRateLimitUtil] = useState(0);
+  const [sessionTokens, setSessionTokens] = useState(0);
+  const [contextWindow, setContextWindow] = useState(0);
   const messagesEndRef = useRef<HTMLDivElement>(null);
   const exitedRef = useRef(false);
   const agentStartedRef = useRef(false);
@@ -201,6 +204,9 @@ export default memo(function ChatView({
         });
         onTaglineChangeRef.current?.(tabIdRef.current, "Thinking...");
       } else if (event.type === "result") {
+        // Accumulate session token count for context bar
+        setSessionTokens(prev => prev + (event.inputTokens || 0) + (event.outputTokens || 0));
+        if (event.contextWindow > 0) setContextWindow(event.contextWindow);
         // Mark thinking messages as ended (collapsed), add result
         setMessages(prev => [
           ...prev.map(m => m.role === "thinking" && !m.ended ? { ...m, ended: true } as ChatMessage : m),
@@ -226,6 +232,8 @@ export default memo(function ChatView({
           }
           return [...prev, { id: nextId(), role: "todo", todos: event.todos, timestamp: Date.now() }];
         });
+      } else if (event.type === "rateLimit") {
+        setRateLimitUtil(event.utilization);
       } else if (event.type === "autocomplete" || event.type === "status") {
         // autocomplete: not implemented yet for chat UI
         // status: only show non-null statuses
@@ -462,6 +470,34 @@ export default memo(function ChatView({
         <RightSidebar messages={messages} onScrollToMessage={handleScrollToMessage} />
       )}
       </div>{/* end chat-main-row */}
+      {(rateLimitUtil > 0 || sessionTokens > 0) && (
+        <div className="chat-usage-bars">
+          {rateLimitUtil > 0 && (
+            <div className="chat-usage-bar" title={`Rate limit: ${Math.round(rateLimitUtil * 100)}%`}>
+              <span className="chat-usage-bar-label">quota</span>
+              <div className="chat-usage-bar-track">
+                <div
+                  className={`chat-usage-bar-fill${rateLimitUtil > 0.8 ? " warn" : ""}`}
+                  style={{ width: `${Math.min(rateLimitUtil * 100, 100)}%` }}
+                />
+              </div>
+              <span className="chat-usage-bar-pct">{Math.round(rateLimitUtil * 100)}%</span>
+            </div>
+          )}
+          {sessionTokens > 0 && contextWindow > 0 && (
+            <div className="chat-usage-bar" title={`Context: ${(sessionTokens / 1000).toFixed(0)}k / ${(contextWindow / 1000).toFixed(0)}k tokens`}>
+              <span className="chat-usage-bar-label">context</span>
+              <div className="chat-usage-bar-track">
+                <div
+                  className={`chat-usage-bar-fill${sessionTokens / contextWindow > 0.8 ? " warn" : ""}`}
+                  style={{ width: `${Math.min((sessionTokens / contextWindow) * 100, 100)}%` }}
+                />
+              </div>
+              <span className="chat-usage-bar-pct">{(sessionTokens / 1000).toFixed(0)}k</span>
+            </div>
+          )}
+        </div>
+      )}
       {isDragging && (
         <div className="chat-drop-overlay">
           <span className="chat-drop-overlay-text">Drop files here</span>

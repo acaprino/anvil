@@ -20,10 +20,10 @@ pub enum AgentEvent {
     Assistant { text: String, streaming: bool },
     ToolUse { tool: String, input: serde_json::Value },
     ToolResult { tool: String, output: String, success: bool },
-    Permission { tool: String, description: String, suggestions: serde_json::Value },
+    Permission { tool: String, description: String, tool_use_id: String, suggestions: serde_json::Value },
     InputRequired {},
     Thinking { text: String },
-    Status { status: String, model: String },
+    Status { status: String, model: String, session_id: String },
     Progress { message: String },
     Result {
         cost: f64,
@@ -35,9 +35,11 @@ pub enum AgentEvent {
         duration_ms: u64,
         is_error: bool,
         session_id: String,
+        context_window: u64,
     },
     Todo { todos: serde_json::Value },
     Autocomplete { suggestions: Vec<String>, seq: u32 },
+    RateLimit { utilization: f64 },
     Error { code: String, message: String },
     Exit { code: i32 },
 }
@@ -67,13 +69,15 @@ struct SidecarEvent {
     #[serde(default)]
     permission_suggestions: Option<serde_json::Value>,
     #[serde(default)]
+    tool_use_id: String,
+    #[serde(default)]
     status: String,
     #[serde(default)]
     model: String,
     #[serde(default)]
     message: String,
     #[serde(default)]
-    code: String,
+    code: serde_json::Value,
     #[serde(default)]
     cost: f64,
     #[serde(default)]
@@ -92,6 +96,8 @@ struct SidecarEvent {
     is_error: bool,
     #[serde(default)]
     session_id: String,
+    #[serde(default)]
+    context_window: u64,
     // For list_sessions response
     #[serde(default)]
     list: Option<serde_json::Value>,
@@ -106,6 +112,9 @@ struct SidecarEvent {
     suggestions: Option<Vec<String>>,
     #[serde(default)]
     seq: u32,
+    // For rate limit events
+    #[serde(default)]
+    utilization: f64,
 }
 
 type ChannelMap = Arc<Mutex<HashMap<String, Channel<AgentEvent>>>>;
@@ -324,10 +333,10 @@ impl SidecarManager {
                         "assistant" => AgentEvent::Assistant { text: event.text, streaming: event.streaming },
                         "tool_use" => AgentEvent::ToolUse { tool: event.tool, input: event.input.unwrap_or(serde_json::Value::Null) },
                         "tool_result" => AgentEvent::ToolResult { tool: event.tool, output: event.output, success: event.success },
-                        "permission" => AgentEvent::Permission { tool: event.tool, description: event.description, suggestions: event.permission_suggestions.unwrap_or(serde_json::Value::Array(vec![])) },
+                        "permission" => AgentEvent::Permission { tool: event.tool, description: event.description, tool_use_id: event.tool_use_id, suggestions: event.permission_suggestions.unwrap_or(serde_json::Value::Array(vec![])) },
                         "input_required" => AgentEvent::InputRequired {},
                         "thinking" => AgentEvent::Thinking { text: event.text },
-                        "status" => AgentEvent::Status { status: event.status, model: event.model },
+                        "status" => AgentEvent::Status { status: event.status, model: event.model, session_id: event.session_id },
                         "progress" => AgentEvent::Progress { message: event.message },
                         "result" => AgentEvent::Result {
                             cost: event.cost,
@@ -339,10 +348,12 @@ impl SidecarManager {
                             duration_ms: event.duration_ms,
                             is_error: event.is_error,
                             session_id: event.session_id,
+                            context_window: event.context_window,
                         },
                         "todo" => AgentEvent::Todo { todos: event.todos.unwrap_or(serde_json::Value::Array(vec![])) },
-                        "error" => AgentEvent::Error { code: event.code, message: event.message },
-                        "exit" => AgentEvent::Exit { code: event.code.parse().unwrap_or(-1) },
+                        "rateLimit" => AgentEvent::RateLimit { utilization: event.utilization },
+                        "error" => AgentEvent::Error { code: event.code.as_str().unwrap_or("unknown").to_string(), message: event.message },
+                        "exit" => AgentEvent::Exit { code: event.code.as_i64().unwrap_or_else(|| event.code.as_str().and_then(|s| s.parse().ok()).unwrap_or(-1)) as i32 },
                         "autocomplete" => AgentEvent::Autocomplete {
                             suggestions: event.suggestions.unwrap_or_default(),
                             seq: event.seq,
