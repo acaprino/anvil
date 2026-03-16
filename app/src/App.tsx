@@ -412,6 +412,7 @@ function AppContent() {
                     onError={handleError}
                     onTaglineChange={handleTaglineChange}
                     inputStyle={inputStyle}
+                    hideThinking={settings?.hide_thinking}
                     plugins={pluginPaths}
                     resumeSessionId={tab.resumeSessionId}
                     forkSessionId={tab.forkSessionId}

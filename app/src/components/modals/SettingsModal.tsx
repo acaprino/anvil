@@ -331,6 +331,15 @@ export default memo(function SettingsModal({ settings, onClose, onUpdate }: Sett
             </button>
           </div>
           <div className="settings-toggle-row">
+            <span>Hide thinking</span>
+            <button
+              className={`settings-toggle-btn ${settings.hide_thinking ? "active" : ""}`}
+              onClick={() => onUpdate({ hide_thinking: !settings.hide_thinking })}
+            >
+              {settings.hide_thinking ? "ON" : "off"}
+            </button>
+          </div>
+          <div className="settings-toggle-row">
             <span>Marketplace (global CLI)</span>
             <button
               className={`settings-toggle-btn ${settings.marketplace_global ? "active" : ""}`}

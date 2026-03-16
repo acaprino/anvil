@@ -77,6 +77,20 @@ const UserMessage = memo(function UserMessage({ text }: { text: string }) {
   return <>{parts}</>;
 });
 
+const CopyMessageBtn = memo(function CopyMessageBtn({ text }: { text: string }) {
+  const [copied, setCopied] = useState(false);
+  const handleCopy = () => {
+    navigator.clipboard.writeText(text);
+    setCopied(true);
+    setTimeout(() => setCopied(false), 1500);
+  };
+  return (
+    <button className="copy-msg-btn" onClick={handleCopy} title="Copy response">
+      {copied ? "Copied" : "Copy"}
+    </button>
+  );
+});
+
 interface ChatViewProps {
   tabId: string;
   projectPath: string;
@@ -91,6 +105,7 @@ interface ChatViewProps {
   onError: (tabId: string, msg: string) => void;
   onTaglineChange?: (tabId: string, tagline: string) => void;
   inputStyle?: "chat" | "terminal";
+  hideThinking?: boolean;
   plugins?: string[];
   resumeSessionId?: string;
   forkSessionId?: string;
@@ -100,7 +115,7 @@ export default memo(function ChatView({
   tabId, projectPath, modelIdx, effortIdx, skipPerms, systemPrompt,
   isActive,
   onSessionCreated, onNewOutput, onExit, onError, onTaglineChange,
-  inputStyle = "terminal", plugins = [], resumeSessionId, forkSessionId,
+  inputStyle = "terminal", hideThinking, plugins = [], resumeSessionId, forkSessionId,
 }: ChatViewProps) {
   const [messages, setMessages] = useState<ChatMessage[]>([]);
   const [inputState, setInputState] = useState<"idle" | "awaiting_input" | "processing">("idle");
@@ -618,6 +633,7 @@ export default memo(function ChatView({
               return (
                 <div key={msg.id} id={`msg-${msg.id}`} className="chat-msg chat-msg--assistant">
                   <MessageBubble text={msg.text} streaming={msg.streaming} />
+                  {!msg.streaming && <CopyMessageBtn text={msg.text} />}
                 </div>
               );
             case "tool":
@@ -625,6 +641,10 @@ export default memo(function ChatView({
             case "permission":
               return <div key={msg.id} id={`msg-${msg.id}`} className="chat-msg chat-msg--permission"><PermissionCard tool={msg.tool} description={msg.description} suggestions={msg.suggestions} resolved={msg.resolved} allowed={msg.allowed} onRespond={(allow, sugg) => handlePermissionRespond(msg.id, allow, sugg)} /></div>;
             case "thinking":
+              if (hideThinking) {
+                if (msg.ended) return null;
+                return <div key={msg.id} id={`msg-${msg.id}`} className="chat-msg chat-msg--thinking"><div className="thinking-spinner"><span className="thinking-spinner-dot" /><span className="thinking-spinner-label">thinking...</span></div></div>;
+              }
               return <div key={msg.id} id={`msg-${msg.id}`} className="chat-msg chat-msg--thinking"><ThinkingBlock text={msg.text} ended={msg.ended} /></div>;
             case "result":
               return <div key={msg.id} id={`msg-${msg.id}`} className="chat-msg chat-msg--result"><ResultBar cost={msg.cost} inputTokens={msg.inputTokens} outputTokens={msg.outputTokens} cacheReadTokens={msg.cacheReadTokens} turns={msg.turns} durationMs={msg.durationMs} /></div>;

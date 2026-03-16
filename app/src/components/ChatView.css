@@ -469,6 +469,58 @@
   padding: var(--space-1) 0;
 }
 
+/* ── ThinkingSpinner: compact spinner when thinking is hidden ─────── */
+.thinking-spinner {
+  display: flex;
+  align-items: center;
+  gap: var(--space-2);
+  padding: var(--space-1) 0;
+}
+.thinking-spinner-dot {
+  display: inline-block;
+  width: 8px;
+  height: 8px;
+  border-radius: 50%;
+  background: var(--accent);
+  animation: thinking-pulse 1.2s ease-in-out infinite;
+}
+.thinking-spinner-label {
+  color: var(--text-dim);
+  font-size: var(--text-sm);
+  opacity: 0.6;
+  font-style: italic;
+}
+@keyframes thinking-pulse {
+  0%, 100% { opacity: 0.2; transform: scale(0.8); }
+  50% { opacity: 1; transform: scale(1.1); }
+}
+
+/* ── CopyMessageBtn: copy full assistant response ────────────────── */
+.chat-msg--assistant {
+  position: relative;
+}
+.copy-msg-btn {
+  position: absolute;
+  top: var(--space-1);
+  right: var(--space-1);
+  background: color-mix(in srgb, var(--surface) 80%, transparent);
+  color: var(--text-dim);
+  border: 1px solid color-mix(in srgb, var(--overlay0) 30%, transparent);
+  border-radius: var(--radius-sm);
+  font-size: var(--text-xs);
+  padding: 2px var(--space-2);
+  cursor: pointer;
+  opacity: 0;
+  transition: opacity 0.15s;
+}
+.chat-msg--assistant:hover .copy-msg-btn {
+  opacity: 1;
+}
+.copy-msg-btn:hover {
+  background: color-mix(in srgb, var(--surface) 95%, transparent);
+  color: var(--text);
+}
+
 /* ── ResultBar: rule status line ──────────────────────────────────── */
 .result-bar {
   display: flex;
