@@ -223,7 +223,7 @@ async function consumeQuery(tabId, q, sessionRef) {
           hasStreamedText = false;
           // Check for errors
           if (msg.error) {
-            emit({ evt: "error", tabId, code: msg.error, message: `Assistant error: ${msg.error}` });
+            emit({ evt: "error", tabId, code: msg.error, message: msg.error_message || msg.error });
           }
           break;
         }

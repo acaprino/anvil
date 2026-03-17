@@ -15,6 +15,7 @@ import ToolCard from "./chat/ToolCard";
 import PermissionCard from "./chat/PermissionCard";
 import ThinkingBlock from "./chat/ThinkingBlock";
 import ResultBar from "./chat/ResultBar";
+import ErrorCard from "./chat/ErrorCard";
 import RightSidebar from "./chat/RightSidebar";
 import "./ChatView.css";
 
@@ -365,7 +366,21 @@ export default memo(function ChatView({
         ]);
         onTaglineChangeRef.current?.(tabIdRef.current, "");
       } else if (event.type === "error") {
-        setMessages(prev => [...prev, { id: nextId(), role: "error", code: event.code, message: event.message, timestamp: Date.now() }]);
+        setMessages(prev => {
+          // Deduplicate rate limit errors — scan backward past transient messages
+          if (event.code === "rate_limit") {
+            for (let i = prev.length - 1; i >= 0; i--) {
+              const m = prev[i];
+              if (m.role === "error" && m.code === "rate_limit") {
+                const next = [...prev];
+                next[i] = { ...m, message: event.message, timestamp: Date.now() };
+                return next;
+              }
+              if (m.role !== "error" && m.role !== "tool" && m.role !== "thinking" && m.role !== "status") break;
+            }
+          }
+          return [...prev, { id: nextId(), role: "error", code: event.code, message: event.message, timestamp: Date.now() }];
+        });
       } else if (event.type === "exit") {
         exitedRef.current = true;
         if (refreshIntervalRef.current) {
@@ -753,7 +768,7 @@ export default memo(function ChatView({
                 case "result":
                   return <ResultBar cost={msg.cost} inputTokens={msg.inputTokens} outputTokens={msg.outputTokens} cacheReadTokens={msg.cacheReadTokens} turns={msg.turns} durationMs={msg.durationMs} />;
                 case "error":
-                  return <><strong>error:</strong> {msg.message}</>;
+                  return <ErrorCard code={msg.code} message={msg.message} />;
                 case "status":
                   return <>[{msg.model}] {msg.status}</>;
                 default:

@@ -134,11 +134,27 @@
 }
 
 .chat-msg--error {
-  color: var(--red);
+  padding: 0;
+}
+
+.error-card {
+  display: flex;
+  align-items: baseline;
+  gap: var(--space-2);
   font-size: var(--text-sm);
-  padding: 2px 0;
-  border-left: 2px solid color-mix(in srgb, var(--red) 30%, transparent);
-  padding-left: var(--space-2);
+  padding: var(--space-1) var(--space-2);
+  border-left: 2px solid color-mix(in srgb, var(--red) 40%, transparent);
+  background: color-mix(in srgb, var(--red) 5%, var(--surface));
+}
+
+.error-card-label {
+  color: var(--red);
+  font-weight: 600;
+  white-space: nowrap;
+}
+
+.error-card-msg {
+  color: var(--text-dim);
 }
 
 .chat-msg--status {
