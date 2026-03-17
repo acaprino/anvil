@@ -150,7 +150,7 @@ pub struct SidecarManager {
     stdin: Mutex<Option<std::process::ChildStdin>>,
     channels: ChannelMap,
     oneshots: OneshotMap,
-    available: AtomicBool,
+    available: Arc<AtomicBool>,
     _process: Mutex<Option<Child>>,
     /// Win32 Job Object — kills all child processes when closed.
     _job: Mutex<Option<JobHandle>>,
@@ -172,7 +172,7 @@ impl SidecarManager {
             stdin: Mutex::new(None),
             channels: Arc::new(Mutex::new(HashMap::new())),
             oneshots: Arc::new(Mutex::new(HashMap::new())),
-            available: AtomicBool::new(false),
+            available: Arc::new(AtomicBool::new(false)),
             _process: Mutex::new(None),
             _job: Mutex::new(None),
         };
@@ -295,7 +295,7 @@ impl SidecarManager {
         match create_job_for_child(&child) {
             Ok(job) => {
                 log_info!("sidecar: process assigned to job object");
-                *self._job.lock().unwrap() = Some(job);
+                *self._job.lock().unwrap_or_else(|e| e.into_inner()) = Some(job);
             }
             Err(e) => log_warn!("sidecar: failed to create job object: {e}"),
         }
@@ -304,12 +304,13 @@ impl SidecarManager {
         let stderr = child.stderr.take().ok_or("No stderr")?;
         let stdin = child.stdin.take().ok_or("No stdin")?;
 
-        *self.stdin.lock().unwrap() = Some(stdin);
-        *self._process.lock().unwrap() = Some(child);
+        *self.stdin.lock().unwrap_or_else(|e| e.into_inner()) = Some(stdin);
+        *self._process.lock().unwrap_or_else(|e| e.into_inner()) = Some(child);
 
         // Stdout reader thread: parse JSON-lines and route to channels
         let channels = Arc::clone(&self.channels);
         let oneshots = Arc::clone(&self.oneshots);
+        let available = Arc::clone(&self.available);
         thread::Builder::new()
             .name("sidecar-stdout".into())
             .spawn(move || {
@@ -353,7 +354,7 @@ impl SidecarManager {
                             })
                         };
 
-                        if let Some(sender) = oneshots.lock().unwrap().remove(tab_id) {
+                        if let Some(sender) = oneshots.lock().unwrap_or_else(|e| e.into_inner()).remove(tab_id) {
                             let _ = sender.send(value);
                         }
                         continue;
@@ -426,17 +427,22 @@ impl SidecarManager {
                         }
                     };
 
-                    // Send to the matching channel
-                    if let Some(channel) = channels.lock().unwrap().get(tab_id) {
-                        let _ = channel.send(agent_event.clone());
-                    }
-
-                    // On exit, remove the channel
-                    if matches!(&agent_event, AgentEvent::Exit { .. }) {
-                        channels.lock().unwrap().remove(tab_id);
+                    // Send to the matching channel (single lock for both send and exit cleanup)
+                    let is_exit = matches!(&agent_event, AgentEvent::Exit { .. });
+                    {
+                        let mut guard = channels.lock().unwrap_or_else(|e| e.into_inner());
+                        if let Some(channel) = guard.get(tab_id) {
+                            let _ = channel.send(agent_event);
+                        }
+                        if is_exit {
+                            guard.remove(tab_id);
+                        }
                     }
                 }
-                log_warn!("sidecar: stdout reader thread exiting");
+                // Sidecar stdout closed — mark unavailable and drop all pending oneshots
+                log_warn!("sidecar: stdout reader thread exiting — marking unavailable");
+                available.store(false, Ordering::SeqCst);
+                oneshots.lock().unwrap_or_else(|e| e.into_inner()).clear();
             })
             .map_err(|e| format!("Failed to spawn stdout reader: {e}"))?;
 
@@ -463,48 +469,52 @@ impl SidecarManager {
 
     /// Send a JSON command to the sidecar.
     pub fn send_command(&self, cmd: &serde_json::Value) -> Result<(), String> {
-        let mut stdin_guard = self.stdin.lock().unwrap();
+        let mut stdin_guard = self.stdin.lock().unwrap_or_else(|e| e.into_inner());
         let stdin = stdin_guard.as_mut().ok_or("Sidecar not running")?;
-        let line = serde_json::to_string(cmd).map_err(|e| format!("JSON error: {e}"))?;
+        let mut line = serde_json::to_string(cmd).map_err(|e| format!("JSON error: {e}"))?;
+        line.push('\n');
         stdin
             .write_all(line.as_bytes())
-            .and_then(|_| stdin.write_all(b"\n"))
             .and_then(|_| stdin.flush())
             .map_err(|e| format!("Failed to write to sidecar: {e}"))
     }
 
     /// Register a channel for a tab, so events get routed to it.
     pub fn register_channel(&self, tab_id: &str, channel: Channel<AgentEvent>) {
-        self.channels.lock().unwrap().insert(tab_id.to_string(), channel);
+        self.channels.lock().unwrap_or_else(|e| e.into_inner()).insert(tab_id.to_string(), channel);
     }
 
     /// Remove a tab's channel.
     pub fn unregister_channel(&self, tab_id: &str) {
-        self.channels.lock().unwrap().remove(tab_id);
+        self.channels.lock().unwrap_or_else(|e| e.into_inner()).remove(tab_id);
     }
 
     /// Register a oneshot for receiving a single response (list_sessions, get_messages).
     pub fn register_oneshot(&self, key: &str) -> tokio::sync::oneshot::Receiver<serde_json::Value> {
         let (tx, rx) = tokio::sync::oneshot::channel();
-        self.oneshots.lock().unwrap().insert(key.to_string(), tx);
+        self.oneshots.lock().unwrap_or_else(|e| e.into_inner()).insert(key.to_string(), tx);
         rx
     }
 
     /// Kill all sessions and shut down the sidecar.
     pub fn shutdown(&self) {
+        // Skip if already marked unavailable (prevents redundant shutdown in Drop)
+        if !self.available.swap(false, Ordering::SeqCst) {
+            return;
+        }
         log_info!("sidecar: shutting down");
         // Close stdin — this triggers the sidecar's rl.on('close') handler
-        *self.stdin.lock().unwrap() = None;
+        *self.stdin.lock().unwrap_or_else(|e| e.into_inner()) = None;
         // Terminate the job object first — this kills the sidecar AND all its
         // child processes (agent SDK subprocesses) in one shot.
-        if let Some(job) = self._job.lock().unwrap().take() {
+        if let Some(job) = self._job.lock().unwrap_or_else(|e| e.into_inner()).take() {
             log_info!("sidecar: terminating job object (kills process tree)");
             unsafe {
                 let _ = TerminateJobObject(job.0, 1);
             }
         }
         // Fallback: kill the direct child if still running
-        if let Some(ref mut child) = *self._process.lock().unwrap() {
+        if let Some(ref mut child) = *self._process.lock().unwrap_or_else(|e| e.into_inner()) {
             let _ = child.kill();
         }
     }

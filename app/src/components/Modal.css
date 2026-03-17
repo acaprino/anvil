@@ -9,9 +9,18 @@
   animation: backdrop-in 0.15s ease-out;
 }
 
+.modal-backdrop[data-state="closed"] {
+  animation: backdrop-out 0.12s ease-in forwards;
+}
+
 @keyframes backdrop-in {
   from { opacity: 0; }
   to { opacity: 1; }
+}
+
+@keyframes backdrop-out {
+  from { opacity: 1; }
+  to { opacity: 0; }
 }
 
 .modal {
@@ -35,9 +44,18 @@
   animation: modal-in 0.2s ease-out;
 }
 
+.modal[data-state="closed"] {
+  animation: modal-out 0.15s ease-in forwards;
+}
+
 @keyframes modal-in {
   from { opacity: 0; transform: translate(-50%, -50%) translateY(8px) scale(0.98); }
   to { opacity: 1; transform: translate(-50%, -50%) translateY(0) scale(1); }
+}
+
+@keyframes modal-out {
+  from { opacity: 1; transform: translate(-50%, -50%) translateY(0) scale(1); }
+  to { opacity: 0; transform: translate(-50%, -50%) translateY(8px) scale(0.98); }
 }
 
 .modal-title {
@@ -107,7 +125,7 @@
   color: var(--text);
   cursor: pointer;
   font-size: var(--text-sm);
-  transition: background 0.15s, border-color 0.15s;
+  transition: background 0.15s ease-out, border-color 0.15s ease-out;
 }
 
 .modal-btn:hover {
@@ -225,7 +243,7 @@
   margin-right: var(--space-2);
   cursor: pointer;
   white-space: nowrap;
-  transition: color 0.12s, border-color 0.12s;
+  transition: color 0.12s ease-out, border-color 0.12s ease-out;
 }
 
 .dir-mode-badge:hover {

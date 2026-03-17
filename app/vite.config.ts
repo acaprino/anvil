@@ -19,6 +19,8 @@ export default defineConfig(async () => ({
           "vendor-react": ["react", "react-dom"],
           "vendor-markdown": ["react-markdown", "remark-gfm"],
           "vendor-syntax": ["react-syntax-highlighter"],
+          "vendor-virtual": ["@tanstack/react-virtual"],
+          "vendor-radix": ["radix-ui"],
         },
       },
     },

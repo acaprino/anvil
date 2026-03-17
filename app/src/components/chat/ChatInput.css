@@ -22,7 +22,7 @@
   gap: var(--space-1);
   background: none;
   border: 1px dashed color-mix(in srgb, var(--overlay0) 40%, transparent);
-  border-radius: 0;
+  border-radius: var(--radius-sm);
   padding: 1px var(--space-2);
   font-size: var(--text-xs);
   color: var(--text-dim);
@@ -156,8 +156,9 @@
   justify-content: center;
   z-index: var(--z-modal);
   border: 1px dashed var(--accent);
-  border-radius: 0;
+  border-radius: var(--radius-sm);
   pointer-events: none;
+  animation: fade-in 0.15s ease-out;
 }
 
 .chat-drop-overlay-text {

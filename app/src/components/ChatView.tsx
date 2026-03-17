@@ -718,11 +718,15 @@ export default memo(function ChatView({
     } catch { /* cancelled */ }
   }, []);
 
-  // ── Derived state (O(1) in render) ────────────────────────────
-  const hasUnresolvedPermission = useMemo(
-    () => messages.some(m => (m.role === "permission" || m.role === "ask") && !m.resolved),
-    [messages],
-  );
+  // ── Derived state (O(1) — scan backward from last user message) ──
+  const hasUnresolvedPermission = useMemo(() => {
+    for (let i = messages.length - 1; i >= 0; i--) {
+      const m = messages[i];
+      if ((m.role === "permission" || m.role === "ask") && !m.resolved) return true;
+      if (m.role === "user") break;
+    }
+    return false;
+  }, [messages]);
 
   // ── Deferred messages for sidebar (skip re-renders during streaming)
   const deferredMessages = useDeferredValue(messages);

@@ -74,16 +74,14 @@ function SessionBrowser({
       })
     : sessions;
 
+  const filteredRef = useRef(filtered);
+  filteredRef.current = filtered;
+
   const handleKeyDown = useCallback(
     (e: KeyboardEvent) => {
       if (!isActive) return;
       const idx = selectedIdxRef.current;
-      const list = filterRef.current
-        ? sessions.filter((s) => {
-            const q = filterRef.current.toLowerCase();
-            return s.summary.toLowerCase().includes(q) || extractProjectName(s.cwd).toLowerCase().includes(q);
-          })
-        : sessions;
+      const list = filteredRef.current;
 
       switch (e.key) {
         case "ArrowUp":
@@ -143,7 +141,7 @@ function SessionBrowser({
           break;
       }
     },
-    [isActive, sessions, tabId, onRequestClose, onResumeSession, onForkSession, onViewSession],
+    [isActive, tabId, onRequestClose, onResumeSession, onForkSession, onViewSession],
   );
 
   useEffect(() => {

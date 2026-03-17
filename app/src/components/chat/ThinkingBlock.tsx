@@ -1,4 +1,4 @@
-import { memo, useState, useEffect } from "react";
+import { memo, useMemo, useState, useEffect } from "react";
 
 interface Props {
   text: string;
@@ -13,8 +13,13 @@ export default memo(function ThinkingBlock({ text, ended }: Props) {
     if (ended) setCollapsed(true);
   }, [ended]);
 
-  const lines = text.split("\n");
-  const lineCount = text.length === 0 ? 0 : lines.length;
+  const lineCount = useMemo(() => {
+    if (text.length === 0) return 0;
+    let count = 1;
+    for (let i = 0; i < text.length; i++) if (text[i] === "\n") count++;
+    return count;
+  }, [text]);
+  const firstLine = collapsed ? "" : (text.split("\n", 1)[0] || "");
 
   return (
     <div className={`thinking-block${ended ? " ended" : ""}`}>
@@ -25,7 +30,7 @@ export default memo(function ThinkingBlock({ text, ended }: Props) {
             ? lineCount === 0 ? "(empty)" : `(${lineCount} line${lineCount !== 1 ? "s" : ""}) `
             : text.length === 0
               ? "..."
-              : lines[0].slice(0, 60)}
+              : firstLine.slice(0, 60)}
         </span>
         <span className="thinking-block-toggle">{collapsed ? "\u25B8" : "\u25BE"}</span>
       </div>

@@ -1,4 +1,4 @@
-import { memo, useState } from "react";
+import { memo, useMemo, useState } from "react";
 import { Collapsible } from "radix-ui";
 
 interface Props {
@@ -10,7 +10,10 @@ interface Props {
 
 export default memo(function ToolCard({ tool, input, output, success }: Props) {
   const [expanded, setExpanded] = useState(false);
-  const inputStr = typeof input === "string" ? input : JSON.stringify(input, null, 2);
+  const inputStr = useMemo(
+    () => typeof input === "string" ? input : JSON.stringify(input, null, 2),
+    [input],
+  );
   const truncatedInput = inputStr.length > 300 ? inputStr.slice(0, 300) + "..." : inputStr;
   const pending = success === undefined;
 

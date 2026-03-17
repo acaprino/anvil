@@ -7,6 +7,12 @@
   overflow: hidden;
   outline: none;
   min-width: 180px;
+  animation: session-panel-in 0.15s ease-out;
+}
+
+@keyframes session-panel-in {
+  from { opacity: 0; transform: translateX(-8px); }
+  to { opacity: 1; transform: translateX(0); }
 }
 
 /* Horizontal mode: panel is a horizontal bar below tab-bar */
@@ -46,6 +52,15 @@
 
 .session-panel__close:hover {
   color: var(--text);
+}
+
+.session-panel__close:active {
+  transform: scale(0.9);
+}
+
+.session-panel__close:focus-visible {
+  outline: 2px solid var(--accent);
+  outline-offset: 2px;
 }
 
 .session-panel__filter {
@@ -141,7 +156,7 @@
   overflow: hidden;
   text-overflow: ellipsis;
   white-space: nowrap;
-  margin-top: 2px;
+  margin-top: var(--space-0);
 }
 
 .session-item__actions {

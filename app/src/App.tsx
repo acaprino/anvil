@@ -400,8 +400,8 @@ function AppContent() {
                       tabId={tab.id}
                       isActive={isActive}
                       onRequestClose={closeTab}
-                      onResumeSession={(sessionId, cwd) => handleResumeSession(sessionId, cwd)}
-                      onForkSession={(sessionId, cwd) => handleForkSession(sessionId, cwd)}
+                      onResumeSession={handleResumeSession}
+                      onForkSession={handleForkSession}
                       onViewSession={(sessionId) => {
                         // TODO: view session transcript
                         console.log("View session", sessionId);

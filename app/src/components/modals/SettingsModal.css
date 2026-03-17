@@ -1,5 +1,5 @@
 .settings-content {
-  max-height: 60vh;
+  max-height: calc(80vh - 100px);
   overflow-y: auto;
   scrollbar-width: thin;
   scrollbar-color: var(--surface) transparent;
@@ -98,7 +98,7 @@
   height: 14px;
   border-radius: 50%;
   background: var(--text-dim);
-  transition: transform 0.15s ease-out, background 0.15s ease-out;
+  transition: transform 0.2s cubic-bezier(0.68, -0.1, 0.27, 1.1), background 0.15s ease-out;
   transform: translateX(2px);
 }
 

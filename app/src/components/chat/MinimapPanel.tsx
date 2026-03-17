@@ -94,7 +94,11 @@ export default memo(function MinimapPanel({ messages, scrollContainerRef }: Prop
     document.addEventListener("mouseup", onUp);
   }, [scrollContainerRef]);
 
-  const filtered = useMemo(() => messages.filter(m => m.role !== "status"), [messages]);
+  const filtered = useMemo(() => {
+    const items = messages.filter(m => m.role !== "status");
+    // Limit to last 200 messages and cap text length for DOM performance
+    return items.slice(-200);
+  }, [messages]);
 
   if (messages.length === 0) return null;
 
@@ -110,7 +114,7 @@ export default memo(function MinimapPanel({ messages, scrollContainerRef }: Prop
             className="minimap-text-block"
             style={{ color: roleColor(msg.role) }}
           >
-            {text}
+            {text.length > 80 ? text.slice(0, 80) : text}
           </div>
         );
       })}

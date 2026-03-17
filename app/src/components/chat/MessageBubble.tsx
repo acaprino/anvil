@@ -88,9 +88,15 @@ function anvilTheme(): Record<string, React.CSSProperties> {
   if (!cachedTheme) cachedTheme = getAnvilTheme();
   return cachedTheme;
 }
-// Invalidate on theme change (CSS variable mutation)
+// Invalidate on theme change (CSS variable mutation) — debounced via rAF to coalesce multiple style changes
+let invalidationScheduled = false;
 const observer = typeof MutationObserver !== "undefined"
-  ? new MutationObserver(() => { cachedTheme = null; })
+  ? new MutationObserver(() => {
+      if (!invalidationScheduled) {
+        invalidationScheduled = true;
+        requestAnimationFrame(() => { cachedTheme = null; invalidationScheduled = false; });
+      }
+    })
   : null;
 observer?.observe(document.documentElement, { attributes: true, attributeFilter: ["style"] });
 
@@ -110,6 +116,9 @@ const SafeLink = ({ href, children }: { href?: string; children?: React.ReactNod
 /** Code block with syntax highlighting + copy button */
 const CodeBlock = ({ className, children }: { className?: string; children?: React.ReactNode }) => {
   const [copied, setCopied] = useState(false);
+  const timerRef = useRef<ReturnType<typeof setTimeout>>(undefined);
+  useEffect(() => () => clearTimeout(timerRef.current), []);
+
   const match = /language-(\w+)/.exec(className || "");
   const code = String(children).replace(/\n$/, "");
   const lineCount = code.split("\n").length;
@@ -119,8 +128,6 @@ const CodeBlock = ({ className, children }: { className?: string; children?: Rea
     return <code className={className}>{children}</code>;
   }
 
-  const timerRef = useRef<ReturnType<typeof setTimeout>>(undefined);
-  useEffect(() => () => clearTimeout(timerRef.current), []);
   const handleCopy = () => {
     navigator.clipboard.writeText(code);
     setCopied(true);

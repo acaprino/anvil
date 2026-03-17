@@ -1,6 +1,6 @@
 /* Folder tree */
 .folder-tree {
-  max-height: 280px;
+  max-height: min(280px, 40vh);
   overflow-y: auto;
   border: 1px solid var(--surface);
   border-radius: var(--radius-sm);

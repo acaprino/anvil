@@ -505,7 +505,10 @@ pub async fn list_agent_sessions(
         "cwd": cwd,
     }))?;
 
-    rx.await.map_err(|_| "Sidecar did not respond".to_string())
+    tokio::time::timeout(std::time::Duration::from_secs(15), rx)
+        .await
+        .map_err(|_| "Sidecar timed out listing sessions".to_string())?
+        .map_err(|_| "Sidecar did not respond".to_string())
 }
 
 #[tauri::command]
@@ -526,7 +529,10 @@ pub async fn get_agent_messages(
         "dir": dir,
     }))?;
 
-    rx.await.map_err(|_| "Sidecar did not respond".to_string())
+    tokio::time::timeout(std::time::Duration::from_secs(15), rx)
+        .await
+        .map_err(|_| "Sidecar timed out fetching messages".to_string())?
+        .map_err(|_| "Sidecar did not respond".to_string())
 }
 
 #[tauri::command]
@@ -558,7 +564,7 @@ pub async fn refresh_commands(
 /// Handles UTF-8 and falls back to lossy conversion for other encodings.
 const MAX_EXTERNAL_FILE_SIZE: u64 = 1_048_576; // 1 MB
 
-const BLOCKED_DIRS: &[&str] = &[".ssh", ".gnupg", ".claude", ".aws", ".config"];
+const BLOCKED_DIRS: &[&str] = &[".ssh", ".gnupg", ".claude", ".aws", ".config", ".npmrc", ".kube", ".docker"];
 
 #[tauri::command]
 pub fn read_external_file(path: String) -> Result<String, String> {
@@ -585,7 +591,10 @@ pub fn read_external_file(path: String) -> Result<String, String> {
     }
     let bytes = std::fs::read(p).map_err(|e| format!("Cannot read file: {e}"))?;
     // Try UTF-8 first, then lossy fallback for Windows-1252 etc.
-    Ok(String::from_utf8(bytes.clone()).unwrap_or_else(|_| String::from_utf8_lossy(&bytes).into_owned()))
+    Ok(match String::from_utf8(bytes) {
+        Ok(s) => s,
+        Err(e) => String::from_utf8_lossy(&e.into_bytes()).into_owned(),
+    })
 }
 
 // ── Claude CLI commands ─────────────────────────────────────────────
