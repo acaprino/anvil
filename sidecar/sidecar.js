@@ -65,6 +65,7 @@ async function handleCreate(cmd) {
     effort: effort || "high",
     includePartialMessages: true,
     settingSources: ["user", "project", "local"],
+    agentProgressSummaries: true,
   };
 
   if (systemPrompt) {
@@ -294,6 +295,39 @@ async function consumeQuery(tabId, q, sessionRef) {
             }
           } else if (msg.subtype === "status") {
             emit({ evt: "status", tabId, status: msg.status || "idle", model: "" });
+          } else if (msg.subtype === "task_started") {
+            emit({
+              evt: "task_started",
+              tabId,
+              taskId: msg.task_id,
+              description: msg.description || "",
+              taskType: msg.task_type || "",
+            });
+          } else if (msg.subtype === "task_progress") {
+            const usage = msg.usage || {};
+            emit({
+              evt: "task_progress",
+              tabId,
+              taskId: msg.task_id,
+              description: msg.description || "",
+              totalTokens: usage.total_tokens || 0,
+              toolUses: usage.tool_uses || 0,
+              durationMs: usage.duration_ms || 0,
+              lastToolName: msg.last_tool_name || "",
+              summary: msg.summary || "",
+            });
+          } else if (msg.subtype === "task_notification") {
+            const usage = msg.usage || {};
+            emit({
+              evt: "task_notification",
+              tabId,
+              taskId: msg.task_id,
+              status: msg.status || "completed",
+              summary: msg.summary || "",
+              totalTokens: usage.total_tokens || 0,
+              toolUses: usage.tool_uses || 0,
+              durationMs: usage.duration_ms || 0,
+            });
           }
           break;
         }

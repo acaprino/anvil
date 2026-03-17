@@ -41,6 +41,9 @@ pub enum AgentEvent {
     Autocomplete { suggestions: Vec<String>, seq: u32 },
     RateLimit { utilization: f64 },
     CommandsInit { commands: serde_json::Value, agents: serde_json::Value },
+    TaskStarted { task_id: String, description: String, task_type: String },
+    TaskProgress { task_id: String, description: String, total_tokens: u64, tool_uses: u32, duration_ms: u64, last_tool_name: String, summary: String },
+    TaskNotification { task_id: String, status: String, summary: String, total_tokens: u64, tool_uses: u32, duration_ms: u64 },
     Error { code: String, message: String },
     Exit { code: i32 },
 }
@@ -121,6 +124,19 @@ struct SidecarEvent {
     commands: Option<serde_json::Value>,
     #[serde(default)]
     agents: Option<serde_json::Value>,
+    // For task events (subagent tracking)
+    #[serde(default)]
+    task_id: String,
+    #[serde(default)]
+    task_type: String,
+    #[serde(default)]
+    total_tokens: u64,
+    #[serde(default)]
+    tool_uses: u32,
+    #[serde(default)]
+    last_tool_name: String,
+    #[serde(default)]
+    summary: String,
 }
 
 type ChannelMap = Arc<Mutex<HashMap<String, Channel<AgentEvent>>>>;
@@ -366,6 +382,28 @@ impl SidecarManager {
                         "commands_init" => AgentEvent::CommandsInit {
                             commands: event.commands.unwrap_or(serde_json::Value::Array(vec![])),
                             agents: event.agents.unwrap_or(serde_json::Value::Array(vec![])),
+                        },
+                        "task_started" => AgentEvent::TaskStarted {
+                            task_id: event.task_id,
+                            description: event.description,
+                            task_type: event.task_type,
+                        },
+                        "task_progress" => AgentEvent::TaskProgress {
+                            task_id: event.task_id,
+                            description: event.description,
+                            total_tokens: event.total_tokens,
+                            tool_uses: event.tool_uses,
+                            duration_ms: event.duration_ms,
+                            last_tool_name: event.last_tool_name,
+                            summary: event.summary,
+                        },
+                        "task_notification" => AgentEvent::TaskNotification {
+                            task_id: event.task_id,
+                            status: event.status,
+                            summary: event.summary,
+                            total_tokens: event.total_tokens,
+                            tool_uses: event.tool_uses,
+                            duration_ms: event.duration_ms,
                         },
                         "error" => AgentEvent::Error { code: event.code.as_str().unwrap_or("unknown").to_string(), message: event.message },
                         "exit" => AgentEvent::Exit { code: event.code.as_i64().unwrap_or_else(|| event.code.as_str().and_then(|s| s.parse().ok()).unwrap_or(-1)) as i32 },

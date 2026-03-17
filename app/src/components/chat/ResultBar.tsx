@@ -1,4 +1,5 @@
 import { memo } from "react";
+import { fmtTokens } from "../../utils/format";
 
 interface Props {
   cost: number;
@@ -7,12 +8,6 @@ interface Props {
   cacheReadTokens: number;
   turns: number;
   durationMs: number;
-}
-
-function fmtTokens(n: number): string {
-  if (n >= 1_000_000) return (n / 1_000_000).toFixed(1) + "M";
-  if (n >= 1_000) return (n / 1_000).toFixed(1) + "K";
-  return n.toString();
 }
 
 export default memo(function ResultBar({ cost, inputTokens, outputTokens, cacheReadTokens, turns, durationMs }: Props) {

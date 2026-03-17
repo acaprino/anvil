@@ -1,13 +1,14 @@
 import { memo, useState, useCallback } from "react";
 import { ScrollArea } from "radix-ui";
-import type { ChatMessage } from "../../types";
+import type { AgentTask, ChatMessage } from "../../types";
 import BookmarkPanel from "./BookmarkPanel";
 import MinimapPanel from "./MinimapPanel";
 import TodoPanel from "./TodoPanel";
 import ThinkingPanel from "./ThinkingPanel";
+import AgentTreePanel from "./AgentTreePanel";
 import "./RightSidebar.css";
 
-type SidebarTab = "bookmarks" | "minimap" | "todos" | "thinking";
+type SidebarTab = "bookmarks" | "minimap" | "todos" | "thinking" | "agents";
 
 const RS_MIN = 150;
 const RS_MAX = 400;
@@ -17,15 +18,17 @@ const SIDEBAR_TABS: { id: SidebarTab; icon: React.ReactNode; title: string }[] =
   { id: "minimap", icon: <svg width="12" height="12" viewBox="0 0 12 12" fill="none"><rect x="1" y="1" width="10" height="10" rx="1" stroke="currentColor" strokeWidth="1.2"/><rect x="3" y="3" width="4" height="3" rx="0.5" fill="currentColor" opacity="0.5"/></svg>, title: "Minimap" },
   { id: "todos", icon: <svg width="12" height="12" viewBox="0 0 12 12" fill="none"><rect x="1" y="1.5" width="3" height="3" rx="0.5" stroke="currentColor" strokeWidth="1.2"/><line x1="6" y1="3" x2="11" y2="3" stroke="currentColor" strokeWidth="1.2" strokeLinecap="round"/><rect x="1" y="7.5" width="3" height="3" rx="0.5" stroke="currentColor" strokeWidth="1.2"/><line x1="6" y1="9" x2="11" y2="9" stroke="currentColor" strokeWidth="1.2" strokeLinecap="round"/></svg>, title: "Todos" },
   { id: "thinking", icon: <svg width="12" height="12" viewBox="0 0 12 12" fill="none"><circle cx="6" cy="5" r="4" stroke="currentColor" strokeWidth="1.2"/><path d="M4.5 4.5c0-1 1.5-1.5 1.5-.5s-1.5 1-1.5 1.5" stroke="currentColor" strokeWidth="1" strokeLinecap="round"/><circle cx="6" cy="7" r="0.5" fill="currentColor"/></svg>, title: "Thinking" },
+  { id: "agents", icon: <svg width="12" height="12" viewBox="0 0 12 12" fill="none"><circle cx="6" cy="3" r="2" stroke="currentColor" strokeWidth="1.2"/><circle cx="3" cy="9" r="1.5" stroke="currentColor" strokeWidth="1"/><circle cx="9" cy="9" r="1.5" stroke="currentColor" strokeWidth="1"/><line x1="6" y1="5" x2="3" y2="7.5" stroke="currentColor" strokeWidth="1"/><line x1="6" y1="5" x2="9" y2="7.5" stroke="currentColor" strokeWidth="1"/></svg>, title: "Agents" },
 ];
 
 interface Props {
   messages: ChatMessage[];
+  agentTasks: AgentTask[];
   onScrollToMessage: (msgId: string) => void;
   scrollContainerRef?: React.RefObject<HTMLDivElement | null>;
 }
 
-export default memo(function RightSidebar({ messages, onScrollToMessage, scrollContainerRef }: Props) {
+export default memo(function RightSidebar({ messages, agentTasks, onScrollToMessage, scrollContainerRef }: Props) {
   const [activeTab, setActiveTab] = useState<SidebarTab>("bookmarks");
 
   const handleResizeStart = useCallback((e: React.MouseEvent) => {
@@ -76,6 +79,9 @@ export default memo(function RightSidebar({ messages, onScrollToMessage, scrollC
           )}
           {activeTab === "thinking" && (
             <ThinkingPanel messages={messages} />
+          )}
+          {activeTab === "agents" && (
+            <AgentTreePanel tasks={agentTasks} />
           )}
         </ScrollArea.Viewport>
         <ScrollArea.Scrollbar className="scroll-area-scrollbar" orientation="vertical">

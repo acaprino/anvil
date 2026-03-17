@@ -3,11 +3,12 @@ import { useVirtualizer } from "@tanstack/react-virtual";
 import { spawnAgent, resumeAgent, forkAgent, sendAgentMessage, killAgent, respondPermission, refreshCommands, runClaudeCommand } from "../hooks/useAgentSession";
 import { open as shellOpen } from "@tauri-apps/plugin-shell";
 import { MODELS, EFFORTS } from "../types";
-import type { AgentEvent, Attachment, ChatMessage, PermissionSuggestion, SlashCommand, AgentInfoSDK } from "../types";
+import type { AgentEvent, AgentTask, Attachment, ChatMessage, PermissionSuggestion, SlashCommand, AgentInfoSDK } from "../types";
 import { open } from "@tauri-apps/plugin-dialog";
 import { invoke } from "@tauri-apps/api/core";
 import { getCurrentWindow } from "@tauri-apps/api/window";
 import { sanitizeInput } from "../utils/sanitizeInput";
+import { fmtTokens } from "../utils/format";
 import ChatInput from "./chat/ChatInput";
 import type { Command } from "./chat/CommandMenu";
 import MessageBubble from "./chat/MessageBubble";
@@ -18,12 +19,6 @@ import ResultBar from "./chat/ResultBar";
 import ErrorCard from "./chat/ErrorCard";
 import RightSidebar from "./chat/RightSidebar";
 import "./ChatView.css";
-
-function fmtBarTokens(n: number): string {
-  if (n >= 1_000_000) return (n / 1_000_000).toFixed(1) + "M";
-  if (n >= 1_000) return (n / 1_000).toFixed(1) + "K";
-  return n.toString();
-}
 
 /** Patterns for parsing user message attachments */
 const FILE_TAG_RE = /<file\s+path="([^"]*)"[^>]*>\n?([\s\S]{0,1048576}?)\n?<\/file>/;
@@ -177,6 +172,9 @@ export default memo(function ChatView({
   const [stats, dispatchStats] = useReducer(statsReducer, INITIAL_STATS);
   const [sdkCommands, setSdkCommands] = useState<SlashCommand[]>([]);
   const [sdkAgents, setSdkAgents] = useState<AgentInfoSDK[]>([]);
+  const [agentTasks, setAgentTasks] = useState<AgentTask[]>([]);
+  const agentTasksRef = useRef<AgentTask[]>([]);
+  const taskFlushRafRef = useRef(0);
   const messagesEndRef = useRef<HTMLDivElement>(null);
   const exitedRef = useRef(false);
   const agentStartedRef = useRef(false);
@@ -402,6 +400,41 @@ export default memo(function ChatView({
           }
           return [...prev, { id: nextId(), role: "todo", todos: event.todos, timestamp: Date.now() }];
         });
+      } else if (event.type === "taskStarted") {
+        // Duplicate guard: skip if taskId already tracked
+        if (!agentTasksRef.current.some(t => t.taskId === event.taskId)) {
+          const newTask: AgentTask = {
+            taskId: event.taskId, description: event.description, taskType: event.taskType,
+            status: "running", totalTokens: 0, toolUses: 0, durationMs: 0, lastToolName: "", summary: "",
+          };
+          agentTasksRef.current = [...agentTasksRef.current, newTask];
+          setAgentTasks(agentTasksRef.current);
+        }
+      } else if (event.type === "taskProgress") {
+        // Batch progress updates via rAF to avoid flooding re-renders
+        agentTasksRef.current = agentTasksRef.current.map(t => t.taskId === event.taskId ? {
+          ...t, description: event.description || t.description,
+          totalTokens: event.totalTokens, toolUses: event.toolUses,
+          durationMs: event.durationMs, lastToolName: event.lastToolName,
+          summary: event.summary || t.summary,
+        } : t);
+        if (!taskFlushRafRef.current) {
+          taskFlushRafRef.current = requestAnimationFrame(() => {
+            taskFlushRafRef.current = 0;
+            setAgentTasks(agentTasksRef.current);
+          });
+        }
+      } else if (event.type === "taskNotification") {
+        const validStatuses = new Set<AgentTask["status"]>(["completed", "failed", "stopped"]);
+        const status = validStatuses.has(event.status) ? event.status : "stopped";
+        agentTasksRef.current = agentTasksRef.current.map(t => t.taskId === event.taskId ? {
+          ...t, status,
+          summary: event.summary || t.summary,
+          totalTokens: event.totalTokens,
+          toolUses: event.toolUses,
+          durationMs: event.durationMs,
+        } : t);
+        setAgentTasks(agentTasksRef.current);
       } else if (event.type === "rateLimit") {
         dispatchStats({ type: "rateLimit", utilization: event.utilization });
       } else if (event.type === "commandsInit") {
@@ -460,6 +493,10 @@ export default memo(function ChatView({
       streamingTextRef.current = "";
       cancelAnimationFrame(rafIdRef.current);
       rafIdRef.current = 0;
+      // Clear agent task state
+      cancelAnimationFrame(taskFlushRafRef.current);
+      taskFlushRafRef.current = 0;
+      agentTasksRef.current = [];
       // Clear commands/agents refresh interval
       if (refreshIntervalRef.current) {
         clearInterval(refreshIntervalRef.current);
@@ -871,7 +908,7 @@ export default memo(function ChatView({
       )}
       </div>{/* end chat-main-col */}
       {sidebarOpen && (
-        <RightSidebar messages={deferredMessages} onScrollToMessage={handleScrollToMessage} scrollContainerRef={chatContainerRef} />
+        <RightSidebar messages={deferredMessages} agentTasks={agentTasks} onScrollToMessage={handleScrollToMessage} scrollContainerRef={chatContainerRef} />
       )}
       </div>{/* end chat-main-row */}
       <div className="chat-bottom-bar">
@@ -884,8 +921,8 @@ export default memo(function ChatView({
           <div className="chat-bottom-bar-stats">
             <span className="chat-bottom-bar-cost">${stats.cost.toFixed(3)}</span>
             <span className="chat-bottom-bar-sep">&middot;</span>
-            <span className="chat-bottom-bar-stat" title={`In: ${fmtBarTokens(stats.inputTokens)} · Out: ${fmtBarTokens(stats.outputTokens)} · Cache R: ${fmtBarTokens(stats.cacheReadTokens)} · Cache W: ${fmtBarTokens(stats.cacheWriteTokens)}`}>
-              {fmtBarTokens(stats.inputTokens + stats.outputTokens + stats.cacheReadTokens + stats.cacheWriteTokens)} tok
+            <span className="chat-bottom-bar-stat" title={`In: ${fmtTokens(stats.inputTokens)} · Out: ${fmtTokens(stats.outputTokens)} · Cache R: ${fmtTokens(stats.cacheReadTokens)} · Cache W: ${fmtTokens(stats.cacheWriteTokens)}`}>
+              {fmtTokens(stats.inputTokens + stats.outputTokens + stats.cacheReadTokens + stats.cacheWriteTokens)} tok
             </span>
             <span className="chat-bottom-bar-sep">&middot;</span>
             <span className="chat-bottom-bar-stat">{stats.turns} turn{stats.turns !== 1 ? "s" : ""}</span>

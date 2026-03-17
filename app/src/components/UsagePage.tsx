@@ -1,5 +1,6 @@
 import { memo, useState, useEffect } from "react";
 import { invoke } from "@tauri-apps/api/core";
+import { fmtTokens } from "../utils/format";
 import { Banner, Box, Sep } from "./GsdPrimitives";
 import "./GsdLayout.css";
 import "./UsagePage.css";
@@ -57,11 +58,7 @@ interface UsagePageProps {
   isActive: boolean;
 }
 
-function fmtTokens(n: number): string {
-  if (n >= 1_000_000) return (n / 1_000_000).toFixed(1) + "M";
-  if (n >= 1_000) return (n / 1_000).toFixed(1) + "K";
-  return n.toString();
-}
+
 
 function fmtCost(n: number): string {
   return "$" + n.toFixed(2);

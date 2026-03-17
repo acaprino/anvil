@@ -1,0 +1,75 @@
+import { memo } from "react";
+import type { AgentTask } from "../../types";
+import { fmtTokens, fmtDuration } from "../../utils/format";
+
+interface Props {
+  tasks: AgentTask[];
+}
+
+const VALID_STATUSES = new Set<AgentTask["status"]>(["running", "completed", "failed", "stopped"]);
+
+const STATUS_ICON: Record<AgentTask["status"], string> = {
+  running: "\u25B6",
+  completed: "\u2714",
+  failed: "\u2718",
+  stopped: "\u25A0",
+};
+
+export default memo(function AgentTreePanel({ tasks }: Props) {
+  if (tasks.length === 0) {
+    return <div className="sidebar-empty">No running agents</div>;
+  }
+
+  const running = tasks.filter(t => t.status === "running");
+  const finished = tasks.filter(t => t.status !== "running");
+
+  return (
+    <div className="agent-tree-panel">
+      {running.length > 0 && (
+        <div className="agent-tree-section">
+          <div className="agent-tree-section-label">Running ({running.length})</div>
+          {running.map(task => (
+            <AgentTaskRow key={task.taskId} task={task} />
+          ))}
+        </div>
+      )}
+      {finished.length > 0 && (
+        <div className="agent-tree-section">
+          <div className="agent-tree-section-label">Finished ({finished.length})</div>
+          {finished.map(task => (
+            <AgentTaskRow key={task.taskId} task={task} />
+          ))}
+        </div>
+      )}
+    </div>
+  );
+});
+
+const AgentTaskRow = memo(function AgentTaskRow({ task }: { task: AgentTask }) {
+  const isRunning = task.status === "running";
+  const safeStatus = VALID_STATUSES.has(task.status) ? task.status : "running";
+  return (
+    <div className={`agent-task agent-task--${safeStatus}`}>
+      <div className="agent-task-header">
+        <span className="agent-task-icon">{STATUS_ICON[safeStatus]}</span>
+        <span className="agent-task-name" title={task.description}>
+          {task.taskType || task.description}
+        </span>
+      </div>
+      {task.description && task.taskType && (
+        <div className="agent-task-desc">{task.description}</div>
+      )}
+      <div className="agent-task-stats">
+        {task.toolUses > 0 && <span>{task.toolUses} tools</span>}
+        {task.totalTokens > 0 && <span>{fmtTokens(task.totalTokens)} tok</span>}
+        {task.durationMs > 0 && <span>{fmtDuration(task.durationMs)}</span>}
+      </div>
+      {isRunning && task.lastToolName && (
+        <div className="agent-task-activity">{task.lastToolName}...</div>
+      )}
+      {task.summary && (
+        <div className="agent-task-summary">{task.summary}</div>
+      )}
+    </div>
+  );
+});

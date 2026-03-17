@@ -257,6 +257,9 @@ export type AgentEvent =
   | { type: "autocomplete"; suggestions: string[]; seq: number }
   | { type: "rateLimit"; utilization: number }
   | { type: "commandsInit"; commands: SlashCommand[]; agents: AgentInfoSDK[] }
+  | { type: "taskStarted"; taskId: string; description: string; taskType: string }
+  | { type: "taskProgress"; taskId: string; description: string; totalTokens: number; toolUses: number; durationMs: number; lastToolName: string; summary: string }
+  | { type: "taskNotification"; taskId: string; status: "completed" | "failed" | "stopped"; summary: string; totalTokens: number; toolUses: number; durationMs: number }
   | { type: "error"; code: string; message: string }
   | { type: "exit"; code: number };
 
@@ -291,6 +294,18 @@ export interface TodoItem {
   title: string;
   status: "pending" | "in_progress" | "completed";
   category?: string;
+}
+
+export interface AgentTask {
+  taskId: string;
+  description: string;
+  taskType: string;
+  status: "running" | "completed" | "failed" | "stopped";
+  totalTokens: number;
+  toolUses: number;
+  durationMs: number;
+  lastToolName: string;
+  summary: string;
 }
 
 export interface Attachment {
