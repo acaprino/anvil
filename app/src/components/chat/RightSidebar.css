@@ -66,6 +66,7 @@
 
 .right-sidebar-viewport {
   padding: var(--space-1);
+  height: 100%;
 }
 
 /* ── Shared Radix ScrollArea styles ──────────────────────────── */
