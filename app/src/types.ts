@@ -107,6 +107,15 @@ export interface Theme {
 
 export const THEMES: Theme[] = [
   {
+    name: "Anvil",
+    colors: {
+      bg: "#181620", surface: "#262432", mantle: "#110f18", crust: "#0a0910",
+      text: "#d8d0c0", textDim: "#787080", overlay0: "#5a5468", overlay1: "#686278",
+      accent: "#e88030", red: "#e06050", green: "#70a860", yellow: "#d8a828",
+      cursor: "#e88838", selection: "#3a3440",
+    },
+  },
+  {
     name: "Catppuccin Mocha",
     colors: {
       bg: "#161622", surface: "#282838", mantle: "#111118", crust: "#0b0b12",
