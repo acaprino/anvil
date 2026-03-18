@@ -25,8 +25,8 @@ async function ensurePermission(): Promise<boolean> {
 
 let lastNotifyTime = 0;
 
-export async function notifyAttention(title: string, body: string): Promise<void> {
-  if (document.hasFocus()) return;
+export async function notifyAttention(title: string, body: string, force = false): Promise<void> {
+  if (!force && document.hasFocus()) return;
   const now = Date.now();
   if (now - lastNotifyTime < 3000) return;
   try {

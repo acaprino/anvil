@@ -288,7 +288,7 @@ export function useSessionController(props: SessionControllerProps): SessionCont
         }]);
         setInputState("processing");
         onTaglineChangeRef.current?.(tabIdRef.current, `Permission: ${event.tool}`);
-        notifyAttention("Permission Required", `${event.tool}: ${event.description || "Tool needs approval"}`).catch(() => {});
+        notifyAttention("Permission Required", `${event.tool}: ${event.description || "Tool needs approval"}`, !isActiveRef.current).catch(() => {});
       } else if (event.type === "ask") {
         finalizeStreaming();
         finalizeThinking();
@@ -298,7 +298,7 @@ export function useSessionController(props: SessionControllerProps): SessionCont
         }]);
         setInputState("processing");
         onTaglineChangeRef.current?.(tabIdRef.current, "Question");
-        notifyAttention("Question", "Claude is asking a question").catch(() => {});
+        notifyAttention("Question", "Claude is asking a question", !isActiveRef.current).catch(() => {});
         queueMicrotask(() => messagesEndRef.current?.scrollIntoView({ behavior: "smooth" }));
       } else if (event.type === "inputRequired") {
         finalizeStreaming();
@@ -312,7 +312,7 @@ export function useSessionController(props: SessionControllerProps): SessionCont
         } else {
           setInputState("awaiting_input");
           setBackgrounded(false);
-          notifyAttention("Input Required", "Claude is waiting for your input").catch(() => {});
+          notifyAttention("Input Required", "Claude is waiting for your input", !isActiveRef.current).catch(() => {});
         }
         onTaglineChangeRef.current?.(tabIdRef.current, "");
       } else if (event.type === "thinking") {
