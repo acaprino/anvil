@@ -152,6 +152,7 @@ fn main() {
             commands::run_claude_command,
             commands::get_marketplace_plugins,
             commands::set_marketplace_global,
+            commands::write_text_file,
             autocomplete::autocomplete_files,
         ])
         .on_window_event(move |window, event| {

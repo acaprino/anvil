@@ -1,8 +1,11 @@
 import { memo, useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { useVirtualizer } from "@tanstack/react-virtual";
 import { MODELS, EFFORTS } from "../types";
+import { invoke } from "@tauri-apps/api/core";
 import { getCurrentWindow } from "@tauri-apps/api/window";
+import { save } from "@tauri-apps/plugin-dialog";
 import { fmtTokens } from "../utils/format";
+import { messagesToMarkdown } from "../utils/exportSession";
 import type { SessionViewProps } from "./SessionViewProps";
 import ChatInput from "./chat/ChatInput";
 import type { Command } from "./chat/CommandMenu";
@@ -174,8 +177,20 @@ export default memo(function ChatView(props: SessionViewProps) {
       e.preventDefault();
       setSearchOpen(true);
       requestAnimationFrame(() => searchInputRef.current?.focus());
+    } else if (e.ctrlKey && e.shiftKey && e.key === "E") {
+      e.preventDefault();
+      (async () => {
+        const path = await save({
+          defaultPath: `session-${new Date().toISOString().slice(0, 10)}.md`,
+          filters: [{ name: "Markdown", extensions: ["md"] }],
+        });
+        if (path) {
+          const md = messagesToMarkdown(messages, "Session");
+          await invoke("write_text_file", { path, content: md });
+        }
+      })();
     }
-  }, [handleInterrupt]);
+  }, [handleInterrupt, messages]);
 
   // Wrap handleCommand to intercept /sidebar
   const handleCommandWrapped = useCallback((command: Command) => {

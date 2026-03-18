@@ -715,6 +715,18 @@ pub async fn run_claude_command(subcommand: String) -> Result<CliResult, String>
     })
 }
 
+// ── File write command ──────────────────────────────────────────────
+
+#[tauri::command]
+pub async fn write_text_file(path: String, content: String) -> Result<(), String> {
+    log_info!("write_text_file: {path}");
+    tokio::task::spawn_blocking(move || {
+        std::fs::write(&path, content).map_err(|e| format!("Failed to write file: {e}"))
+    })
+    .await
+    .map_err(|e| format!("Task failed: {e}"))?
+}
+
 // ── Marketplace commands ────────────────────────────────────────────
 
 #[tauri::command]
