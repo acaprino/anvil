@@ -2,6 +2,7 @@ import { useState, useEffect, useRef } from "react";
 import { invoke } from "@tauri-apps/api/core";
 import Modal from "../Modal";
 import FolderTree from "../FolderTree";
+import { PROJECT_TEMPLATES, ProjectTemplate } from "../../data/projectTemplates";
 
 interface CreateProjectModalProps {
   defaultDir: string;
@@ -19,6 +20,7 @@ export default function CreateProjectModal({
   const [gitInit, setGitInit] = useState(true);
   const [err, setErr] = useState("");
   const [creating, setCreating] = useState(false);
+  const [selectedTemplate, setSelectedTemplate] = useState<ProjectTemplate | null>(null);
   const inputRef = useRef<HTMLInputElement>(null);
 
   useEffect(() => { inputRef.current?.focus(); }, []);
@@ -30,6 +32,16 @@ export default function CreateProjectModal({
     setErr("");
     try {
       await invoke("create_project", { parent: parentDir, name: name.trim(), gitInit });
+      // If a template was selected, create its system prompt
+      if (selectedTemplate) {
+        try {
+          await invoke("save_prompt", {
+            name: `${name.trim()} - ${selectedTemplate.name}`,
+            description: selectedTemplate.description,
+            content: selectedTemplate.systemPrompt,
+          });
+        } catch { /* best effort — prompt creation is optional */ }
+      }
       onCreated();
       onClose();
     } catch (e) {
@@ -40,6 +52,24 @@ export default function CreateProjectModal({
 
   return (
     <Modal title="Create Project" onClose={onClose}>
+      <div className="modal-field">
+        <label>Template (optional)</label>
+        <div className="template-picker">
+          {PROJECT_TEMPLATES.map((t) => (
+            <button
+              key={t.name}
+              className={`template-chip${selectedTemplate?.name === t.name ? " active" : ""}`}
+              onClick={() => setSelectedTemplate(selectedTemplate?.name === t.name ? null : t)}
+              title={t.description}
+            >
+              {t.name}
+            </button>
+          ))}
+        </div>
+        {selectedTemplate && (
+          <div className="template-desc">{selectedTemplate.description}</div>
+        )}
+      </div>
       <div className="modal-field">
         <label>Project name</label>
         <input
