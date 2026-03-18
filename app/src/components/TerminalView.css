@@ -455,8 +455,8 @@
   border: 1px solid color-mix(in srgb, var(--overlay0) 30%, transparent);
   color: var(--text-dim);
   font-size: var(--text-base);
-  width: 24px;
-  height: 24px;
+  width: 26px;
+  height: 26px;
   border-radius: var(--radius-sm);
   cursor: pointer;
   display: flex;

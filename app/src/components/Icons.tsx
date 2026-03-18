@@ -138,7 +138,7 @@ export function IconAgents({ size = 16, ...p }: IconProps) {
 // ── Session panel ───────────────────────────────────────────────
 
 /** Fork — branch split */
-export function IconFork({ size = 14, ...p }: IconProps) {
+export function IconFork({ size = 16, ...p }: IconProps) {
   return (
     <svg viewBox="0 0 10 10" width={size} height={size} {...p} aria-hidden fill="none">
       <line x1="5" y1="1" x2="5" y2="9" stroke="currentColor" strokeWidth="1.2" />
@@ -150,7 +150,7 @@ export function IconFork({ size = 14, ...p }: IconProps) {
 // ── Terminal view bottom bar ────────────────────────────────────
 
 /** Plus — attach files */
-export function IconPlus({ size = 14, ...p }: IconProps) {
+export function IconPlus({ size = 16, ...p }: IconProps) {
   return (
     <svg viewBox="0 0 16 16" {...defaults(size, p)}>
       <line x1="8" y1="3" x2="8" y2="13" stroke="currentColor" strokeWidth="2" strokeLinecap="round" />
@@ -160,7 +160,7 @@ export function IconPlus({ size = 14, ...p }: IconProps) {
 }
 
 /** Sidebar panel toggle */
-export function IconSidebar({ size = 14, ...p }: IconProps) {
+export function IconSidebar({ size = 16, ...p }: IconProps) {
   return (
     <svg viewBox="0 0 16 16" {...defaults(size, p)}>
       <rect x="1.5" y="2" width="13" height="12" rx="1.5" stroke="currentColor" strokeWidth="1.5" />

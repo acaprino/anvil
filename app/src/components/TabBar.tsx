@@ -116,13 +116,13 @@ export default memo(function TabBar({ tabs, activeTabId, onActivate, onClose, on
       </button>
       <div className="tab-bar-actions">
         <button className="tab-bar-action" onClick={onToggleSessions} title="Sessions (Ctrl+Shift+S)" aria-label="Sessions">
-          <IconSessions size={14} />
+          <IconSessions />
         </button>
         <button className="tab-bar-action" onClick={onToggleUsage} title="Usage Stats (Ctrl+U)" aria-label="Usage Stats">
-          <IconBarChart size={14} />
+          <IconBarChart />
         </button>
         <button className="tab-bar-action" onClick={onToggleAbout} title="About (F12)" aria-label="About">
-          <IconInfo size={14} />
+          <IconInfo />
         </button>
       </div>
       <div className="window-controls">

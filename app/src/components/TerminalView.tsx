@@ -362,14 +362,14 @@ export default memo(function TerminalView(props: SessionViewProps) {
           </>
         )}
         <span className="tv-bottom-spacer" />
-        <button className="tv-bottom-btn" title="Attach files" onClick={handleAttachClick}><IconPlus size={12} /></button>
+        <button className="tv-bottom-btn" title="Attach files" onClick={handleAttachClick}><IconPlus /></button>
         <button
           className={`tv-bottom-btn tv-bottom-sidebar-toggle${sidebarOpen ? " active" : ""}`}
           title={sidebarOpen ? "Hide sidebar (Ctrl+B)" : "Show sidebar (Ctrl+B)"}
           aria-label="Toggle right sidebar"
           onClick={() => setSidebarOpen(prev => !prev)}
         >
-          <IconSidebar size={12} />
+          <IconSidebar />
         </button>
       </div>
       {isDragging && (
