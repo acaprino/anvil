@@ -62,6 +62,7 @@ export interface Settings {
   view_style?: "terminal" | "chat";
   hide_thinking?: boolean;
   marketplace_global?: boolean;
+  onboarding_seen?: boolean;
 }
 
 export interface UsageEntry {

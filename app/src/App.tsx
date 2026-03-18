@@ -11,6 +11,7 @@ import AgentView from "./components/AgentView";
 import NewTabPage from "./components/NewTabPage";
 import ErrorBoundary from "./components/ErrorBoundary";
 import ShortcutsOverlay from "./components/ShortcutsOverlay";
+import OnboardingOverlay from "./components/OnboardingOverlay";
 import "./components/ShortcutsOverlay.css";
 import "./App.css";
 
@@ -463,6 +464,9 @@ function AppContent() {
         })}
       </div>
       {showShortcuts && <ShortcutsOverlay onClose={() => setShowShortcuts(false)} />}
+      {settings && !settings.onboarding_seen && (
+        <OnboardingOverlay onDismiss={() => updateSettings({ onboarding_seen: true })} />
+      )}
       {pendingCloseTabId && (
         <div className="confirm-overlay" onClick={() => setPendingCloseTabId(null)}>
           <div className="confirm-dialog" onClick={(e) => e.stopPropagation()}>

@@ -1,0 +1,75 @@
+/* ── Onboarding Overlay ─────────────────────────────────────────── */
+.onboarding-overlay {
+  position: fixed;
+  inset: 0;
+  background: var(--backdrop);
+  z-index: var(--z-modal);
+  display: flex;
+  align-items: center;
+  justify-content: center;
+}
+
+.onboarding-dialog {
+  background: var(--surface);
+  border: 1px solid var(--overlay0);
+  border-radius: var(--radius-md);
+  padding: var(--space-8);
+  max-width: 480px;
+  width: 90%;
+  box-shadow: var(--shadow-modal);
+}
+
+.onboarding-slide-count {
+  font-size: var(--text-xs);
+  color: var(--overlay0);
+  margin-bottom: var(--space-2);
+}
+
+.onboarding-title {
+  font-size: var(--text-xl);
+  color: var(--text);
+  margin: 0 0 var(--space-4);
+  font-weight: 700;
+}
+
+.onboarding-body {
+  font-size: var(--text-sm);
+  color: var(--text-dim);
+  line-height: 1.6;
+  margin: 0 0 var(--space-6);
+  white-space: pre-wrap;
+  font-family: inherit;
+}
+
+.onboarding-actions {
+  display: flex;
+  align-items: center;
+  gap: var(--space-2);
+}
+
+.onboarding-spacer { flex: 1; }
+
+.onboarding-btn {
+  background: none;
+  border: 1px solid var(--overlay0);
+  border-radius: var(--radius-sm);
+  color: var(--text-dim);
+  font-size: var(--text-sm);
+  padding: var(--space-1) var(--space-4);
+  cursor: pointer;
+}
+
+.onboarding-btn:hover { color: var(--text); border-color: var(--overlay1); }
+.onboarding-btn:active { transform: scale(0.97); }
+
+.onboarding-btn-skip { opacity: 0.5; }
+.onboarding-btn-skip:hover { opacity: 1; }
+
+.onboarding-btn-next {
+  color: var(--accent);
+  border-color: var(--accent);
+}
+
+.onboarding-btn-next:hover {
+  background: color-mix(in srgb, var(--accent) 10%, transparent);
+}
