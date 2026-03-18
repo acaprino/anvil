@@ -267,6 +267,7 @@ export default memo(function ChatView(props: SessionViewProps) {
     const target = e.target as HTMLElement;
     if (target.tagName === "TEXTAREA" || target.tagName === "INPUT" || target.isContentEditable) return;
     if (target.closest("button, a, [role='button']")) return;
+    if (window.getSelection()?.toString()) return;
     const textarea = (e.currentTarget as HTMLElement).querySelector("textarea");
     textarea?.focus();
   }, []);

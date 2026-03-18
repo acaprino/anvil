@@ -1,4 +1,4 @@
-import { memo, useState, useRef, useEffect } from "react";
+import { memo, useState, useRef, useEffect, useDeferredValue } from "react";
 import ReactMarkdown from "react-markdown";
 import remarkGfm from "remark-gfm";
 import { PrismLight as SyntaxHighlighter } from "react-syntax-highlighter";
@@ -102,6 +102,7 @@ observer?.observe(document.documentElement, { attributes: true, attributeFilter:
 
 interface Props {
   text: string;
+  /** Controls streaming cursor CSS animation only */
   streaming?: boolean;
 }
 
@@ -165,16 +166,14 @@ const MD_PLUGINS = [remarkGfm];
 const MD_COMPONENTS = { a: SafeLink, code: CodeBlock as never };
 
 export default memo(function MessageBubble({ text, streaming }: Props) {
+  // During rapid streaming, useDeferredValue lets React skip intermediate
+  // ReactMarkdown re-parses — avoids O(n^2) markdown cost per chunk.
+  const deferredText = useDeferredValue(text);
   return (
     <div className={`msg-bubble${streaming ? " streaming" : ""}`}>
-      {streaming ? (
-        // Raw text during streaming — avoids O(n^2) markdown re-parsing per chunk
-        <span style={{ whiteSpace: "pre-wrap" }}>{text}</span>
-      ) : (
-        <ReactMarkdown remarkPlugins={MD_PLUGINS} components={MD_COMPONENTS}>
-          {text}
-        </ReactMarkdown>
-      )}
+      <ReactMarkdown remarkPlugins={MD_PLUGINS} components={MD_COMPONENTS}>
+        {deferredText}
+      </ReactMarkdown>
     </div>
   );
 });
