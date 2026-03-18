@@ -201,7 +201,8 @@ function AppContent() {
 
   const handleError = useCallback((tabId: string, msg: string) => {
     console.error(`Tab ${tabId} error:`, msg);
-  }, []);
+    updateTab(tabId, { exitCode: 1 });
+  }, [updateTab]);
 
   const handleTaglineChange = useCallback((tabId: string, tagline: string) => {
     updateTab(tabId, { tagline });

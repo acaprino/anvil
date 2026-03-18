@@ -472,7 +472,10 @@ export function useSessionController(props: SessionControllerProps): SessionCont
         })
         .catch((err) => {
           if (cancelled) return;
-          onErrorRef.current(tabIdRef.current, String(err));
+          const msg = String(err);
+          setMessages(prev => [...prev, { id: nextId(), role: "error", code: "spawn", message: msg, timestamp: Date.now() }]);
+          exitedRef.current = true;
+          onErrorRef.current(tabIdRef.current, msg);
         });
     })();
 
