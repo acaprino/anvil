@@ -1,6 +1,6 @@
-import { memo, useState, useCallback } from "react";
+import { memo, useState, useCallback, useMemo } from "react";
 import { ScrollArea } from "radix-ui";
-import type { AgentTask, ChatMessage } from "../../types";
+import type { AgentTask, ChatMessage, TodoItem } from "../../types";
 import { IconBookmark, IconMinimap, IconTodos, IconThinking, IconAgents } from "../Icons";
 import BookmarkPanel from "./BookmarkPanel";
 import MinimapPanel from "./MinimapPanel";
@@ -31,6 +31,13 @@ interface Props {
 
 export default memo(function RightSidebar({ messages, agentTasks, onScrollToMessage, scrollContainerRef }: Props) {
   const [activeTab, setActiveTab] = useState<SidebarTab>("bookmarks");
+
+  const todoCount = useMemo(() => {
+    const todoMessages = messages.filter((m) => m.role === "todo");
+    const latestTodo = todoMessages[todoMessages.length - 1];
+    const todos = (latestTodo?.role === "todo" ? latestTodo.todos : []) as TodoItem[];
+    return todos.filter((t) => t.status !== "completed").length;
+  }, [messages]);
 
   const handleResizeStart = useCallback((e: React.MouseEvent) => {
     e.preventDefault();
@@ -67,6 +74,9 @@ export default memo(function RightSidebar({ messages, agentTasks, onScrollToMess
             title={tab.title}
           >
             {tab.icon}
+            {tab.id === "todos" && todoCount > 0 && (
+              <span className="sidebar-tab-badge">{todoCount}</span>
+            )}
           </button>
         ))}
       </div>

@@ -332,12 +332,18 @@ async function consumeQuery(tabId, q, sessionRef) {
                 input: block.input,
                 toolUseId: block.id,
               });
-              // Intercept TodoWrite/TodoRead to forward structured todo events
-              if (block.name === "TodoWrite" || block.name === "TodoRead") {
+              // Intercept TodoWrite to forward structured todo events
+              if (block.name === "TodoWrite") {
                 try {
                   const todoInput = typeof block.input === "string" ? JSON.parse(block.input) : block.input;
-                  if (todoInput.todos || todoInput.items) {
-                    emit({ evt: "todo", tabId, todos: todoInput.todos || todoInput.items });
+                  if (todoInput.todos) {
+                    const mapped = todoInput.todos.map((t, i) => ({
+                      id: `todo-${i}`,
+                      title: t.content || t.title || "",
+                      status: t.status,
+                      category: t.activeForm || t.category || undefined,
+                    }));
+                    emit({ evt: "todo", tabId, todos: mapped });
                   }
                 } catch { /* ignore parse errors */ }
               }

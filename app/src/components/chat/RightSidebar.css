@@ -54,9 +54,30 @@
   background: var(--hover-overlay-subtle);
 }
 
+.right-sidebar-tab {
+  position: relative;
+}
+
 .right-sidebar-tab.active {
   opacity: 1;
   background: color-mix(in srgb, var(--accent) 10%, transparent);
+}
+
+.sidebar-tab-badge {
+  position: absolute;
+  top: 0;
+  right: 0;
+  min-width: 14px;
+  height: 14px;
+  border-radius: 7px;
+  background: var(--accent);
+  color: var(--crust);
+  font-size: 9px;
+  font-weight: 700;
+  line-height: 14px;
+  text-align: center;
+  padding: 0 3px;
+  pointer-events: none;
 }
 
 .right-sidebar-content {
