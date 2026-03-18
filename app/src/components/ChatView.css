@@ -165,6 +165,34 @@
   padding: 1px 0;
 }
 
+/* ── History (previous session context) ─────────────────────────── */
+.chat-msg--history {
+  opacity: 0.45;
+}
+
+.history-separator {
+  display: flex;
+  align-items: center;
+  gap: var(--space-3);
+  padding: var(--space-2) 0;
+  color: var(--text-dim);
+  font-size: var(--text-xs);
+}
+
+.history-separator::before,
+.history-separator::after {
+  content: "";
+  flex: 1;
+  height: 1px;
+  background: color-mix(in srgb, var(--overlay0) 40%, transparent);
+}
+
+.history-separator span {
+  text-transform: uppercase;
+  letter-spacing: 0.08em;
+  opacity: 0.6;
+}
+
 .chat-msg--result {
   padding: 0;
   margin: 2px 0;

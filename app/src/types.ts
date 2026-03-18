@@ -200,7 +200,8 @@ export type ChatMessage =
   | { id: string; role: "result"; cost: number; inputTokens: number; outputTokens: number; cacheReadTokens: number; cacheWriteTokens: number; turns: number; durationMs: number; isError: boolean; sessionId: string; contextWindow: number; timestamp: number }
   | { id: string; role: "error"; code: string; message: string; timestamp: number }
   | { id: string; role: "status"; status: string; model: string; timestamp: number }
-  | { id: string; role: "todo"; todos: TodoItem[]; timestamp: number };
+  | { id: string; role: "todo"; todos: TodoItem[]; timestamp: number }
+  | { id: string; role: "history-separator"; timestamp: number };
 
 export interface SessionInfo {
   id: string;

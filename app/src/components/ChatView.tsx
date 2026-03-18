@@ -1,6 +1,6 @@
 import { memo, useCallback, useDeferredValue, useEffect, useMemo, useReducer, useRef, useState } from "react";
 import { useVirtualizer } from "@tanstack/react-virtual";
-import { spawnAgent, resumeAgent, forkAgent, sendAgentMessage, killAgent, respondPermission, respondAskUser, refreshCommands, runClaudeCommand } from "../hooks/useAgentSession";
+import { spawnAgent, resumeAgent, forkAgent, sendAgentMessage, killAgent, respondPermission, respondAskUser, refreshCommands, runClaudeCommand, getAgentMessages } from "../hooks/useAgentSession";
 import { open as shellOpen } from "@tauri-apps/plugin-shell";
 import { MODELS, EFFORTS, PERM_MODES } from "../types";
 import type { AgentEvent, AgentTask, Attachment, ChatMessage, PermissionSuggestion, SlashCommand, AgentInfoSDK } from "../types";
@@ -25,6 +25,13 @@ import "./ChatView.css";
 const FILE_TAG_RE = /<file\s+path="([^"]*)"[^>]*>\n?([\s\S]{0,1048576}?)\n?<\/file>/;
 const IMAGE_TAG_RE = /\[Attached image: ([^\]]+)\]/;
 const FALLBACK_TAG_RE = /\[Attached: ([^\]]+)\]/;
+
+// Module-level: tracks pending deferred kills across component instances.
+// When a new ChatView mounts for a tabId, it cancels any pending kill — this
+// handles both StrictMode re-mounts AND navigation (resume/fork) which create
+// a new component instance with a fresh useRef.
+const _pendingKills = new Map<string, ReturnType<typeof setTimeout>>();
+
 const ATTACHMENT_RE = new RegExp(
   `(?:${FILE_TAG_RE.source})|(?:${IMAGE_TAG_RE.source})|(?:${FALLBACK_TAG_RE.source})`,
   "g",
@@ -183,9 +190,6 @@ export default memo(function ChatView({
   const tabIdRef = useRef(tabId);
   tabIdRef.current = tabId;
 
-  // StrictMode kill-cancellation: cleanup sets true, re-mount sets false.
-  // Deferred kill only fires if still true (real unmount, not StrictMode).
-  const pendingKillRef = useRef(false);
   const idCounterRef = useRef(0);
   const nextId = () => `msg-${tabId}-${++idCounterRef.current}`;
 
@@ -255,7 +259,13 @@ export default memo(function ChatView({
 
   // ── Agent lifecycle ─────────────────────────────────────────────
   useEffect(() => {
-    pendingKillRef.current = false; // Cancel any deferred kill from StrictMode cleanup
+    // Cancel any pending deferred kill for this tabId — covers both StrictMode
+    // re-mounts (same instance) AND navigation remounts (new instance, same tabId).
+    const pendingKill = _pendingKills.get(tabId);
+    if (pendingKill) {
+      clearTimeout(pendingKill);
+      _pendingKills.delete(tabId);
+    }
     setMessages([]);               // Clear stale messages from previous StrictMode mount
     setInputState("idle");
     let cancelled = false;
@@ -490,6 +500,39 @@ export default memo(function ChatView({
       }
     };
 
+    // Load previous conversation history for resume/fork sessions
+    const historySessionId = resumeSessionId || forkSessionId;
+    if (historySessionId) {
+      getAgentMessages(historySessionId, projectPath).then((data: unknown) => {
+        if (cancelled) return;
+        const { messages: sdkMsgs } = data as { messages: Array<{ type: string; message: { role: string; content: string | Array<{ type: string; text?: string; name?: string; input?: unknown }> } }> };
+        if (!sdkMsgs?.length) return;
+        const historyMsgs: ChatMessage[] = [];
+        for (const m of sdkMsgs) {
+          const role = m.message?.role;
+          const content = m.message?.content;
+          if (!content) continue;
+          if (role === "user") {
+            const text = typeof content === "string" ? content : (content as Array<{ type: string; text?: string }>).filter(b => b.type === "text").map(b => b.text).join("\n");
+            if (text) historyMsgs.push({ id: `hist-${historyMsgs.length}`, role: "user", text, timestamp: 0 });
+          } else if (role === "assistant") {
+            const blocks = Array.isArray(content) ? content as Array<{ type: string; text?: string; name?: string; input?: unknown }> : [];
+            for (const block of blocks) {
+              if (block.type === "text" && block.text) {
+                historyMsgs.push({ id: `hist-${historyMsgs.length}`, role: "assistant", text: block.text, streaming: false, timestamp: 0 });
+              } else if (block.type === "tool_use" && block.name) {
+                historyMsgs.push({ id: `hist-${historyMsgs.length}`, role: "tool", tool: block.name, input: block.input, timestamp: 0 });
+              }
+            }
+          }
+        }
+        if (historyMsgs.length > 0) {
+          historyMsgs.push({ id: "hist-sep", role: "history-separator", timestamp: 0 });
+          setMessages(prev => [...historyMsgs, ...prev]);
+        }
+      }).catch(() => { /* history is best-effort */ });
+    }
+
     let channelRef: { onmessage: ((event: AgentEvent) => void) | null } | null = null;
 
     const launchPromise = resumeSessionId
@@ -544,15 +587,13 @@ export default memo(function ChatView({
         clearInterval(refreshIntervalRef.current);
         refreshIntervalRef.current = null;
       }
-      // Defer kill so StrictMode re-mount can cancel it.
-      // pendingKillRef persists across mounts — re-mount sets it to false.
-      pendingKillRef.current = true;
+      // Defer kill so StrictMode re-mount (or navigation remount) can cancel it.
       const tid = tabIdRef.current;
-      setTimeout(() => {
-        if (pendingKillRef.current) {
-          killAgent(tid).catch(() => {});
-        }
+      const killTimer = setTimeout(() => {
+        _pendingKills.delete(tid);
+        killAgent(tid).catch(() => {});
       }, 50);
+      _pendingKills.set(tid, killTimer);
     };
   // eslint-disable-next-line react-hooks/exhaustive-deps
   }, []);
@@ -868,6 +909,8 @@ export default memo(function ChatView({
                   return <ErrorCard code={msg.code} message={msg.message} />;
                 case "status":
                   return <>[{msg.model}] {msg.status}</>;
+                case "history-separator":
+                  return <div className="history-separator"><span>previous session</span></div>;
                 default:
                   return null;
               }
@@ -882,7 +925,7 @@ export default memo(function ChatView({
                 data-index={virtualRow.index}
                 ref={virtualizer.measureElement}
                 id={`msg-${msg.id}`}
-                className={`chat-msg chat-msg--${msg.role}`}
+                className={`chat-msg chat-msg--${msg.role}${msg.timestamp === 0 ? " chat-msg--history" : ""}`}
                 style={{ position: "absolute", top: 0, left: 0, width: "100%", transform: `translateY(${virtualRow.start}px)` }}
               >
                 {content}
