@@ -1,4 +1,5 @@
 import { memo } from "react";
+import { IconTerminal, IconPencil, IconGear } from "./Icons";
 import "./InfoStrip.css";
 
 interface InfoStripProps {
@@ -26,7 +27,7 @@ export default memo(function InfoStrip({ filter, projectCount, onOpenSettings, o
           title="Temp Session (F10)"
           aria-label="Open temporary session"
         >
-          &#8811;
+          <IconTerminal />
         </button>
         <button
           className="info-strip__btn"
@@ -34,7 +35,7 @@ export default memo(function InfoStrip({ filter, projectCount, onOpenSettings, o
           title="System Prompts (Ctrl+Shift+P)"
           aria-label="Open system prompts"
         >
-          &#9998;
+          <IconPencil />
         </button>
         <button
           className="info-strip__btn info-strip__gear"
@@ -42,7 +43,7 @@ export default memo(function InfoStrip({ filter, projectCount, onOpenSettings, o
           title="Settings (Ctrl+,)"
           aria-label="Open settings"
         >
-          &#9881;
+          <IconGear />
         </button>
       </div>
     </div>

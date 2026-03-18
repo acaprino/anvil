@@ -6,7 +6,6 @@ import catppuccinMocha from "./catppuccin-mocha.json";
 import dracula from "./dracula.json";
 import tokyoNight from "./tokyo-night.json";
 import nord from "./nord.json";
-import monokai from "./monokai.json";
 import kanagawa from "./kanagawa.json";
 import synthwave from "./synthwave.json";
 import matrix from "./matrix.json";
@@ -21,7 +20,6 @@ export const THEMES: Theme[] = [
   dracula,
   tokyoNight,
   nord,
-  monokai,
   kanagawa,
   synthwave,
   matrix,

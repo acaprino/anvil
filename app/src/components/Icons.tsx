@@ -168,3 +168,35 @@ export function IconSidebar({ size = 16, ...p }: IconProps) {
     </svg>
   );
 }
+
+// ── InfoStrip ───────────────────────────────────────────────────
+
+/** Terminal / quick launch — chevron double-right */
+export function IconTerminal({ size = 16, ...p }: IconProps) {
+  return (
+    <svg viewBox="0 0 16 16" {...defaults(size, p)}>
+      <polyline points="2,3 8,8 2,13" stroke="currentColor" strokeWidth="1.5" strokeLinecap="round" strokeLinejoin="round" />
+      <polyline points="8,3 14,8 8,13" stroke="currentColor" strokeWidth="1.5" strokeLinecap="round" strokeLinejoin="round" />
+    </svg>
+  );
+}
+
+/** Pencil — edit / system prompts */
+export function IconPencil({ size = 16, ...p }: IconProps) {
+  return (
+    <svg viewBox="0 0 16 16" {...defaults(size, p)}>
+      <path d="M11.5 2.5l2 2L5 13H3v-2z" stroke="currentColor" strokeWidth="1.5" strokeLinejoin="round" />
+      <line x1="9.5" y1="4.5" x2="11.5" y2="6.5" stroke="currentColor" strokeWidth="1.5" />
+    </svg>
+  );
+}
+
+/** Gear — settings */
+export function IconGear({ size = 16, ...p }: IconProps) {
+  return (
+    <svg viewBox="0 0 16 16" {...defaults(size, p)}>
+      <circle cx="8" cy="8" r="2.5" stroke="currentColor" strokeWidth="1.5" />
+      <path d="M8 1.5v2M8 12.5v2M1.5 8h2M12.5 8h2M3.4 3.4l1.4 1.4M11.2 11.2l1.4 1.4M3.4 12.6l1.4-1.4M11.2 4.8l1.4-1.4" stroke="currentColor" strokeWidth="1.5" strokeLinecap="round" />
+    </svg>
+  );
+}
