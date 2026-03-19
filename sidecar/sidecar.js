@@ -180,7 +180,8 @@ async function handleCreate(cmd) {
           : toolName === "Edit" || toolName === "Write" || toolName === "Read"
             ? (input.file_path || "")
             : JSON.stringify(input).slice(0, 200);
-      } catch {
+      } catch (err) {
+        log("DEBUG: JSON.stringify failed for tool input:", err.message);
         description = "(unserializable input)";
       }
 
