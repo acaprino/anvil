@@ -50,98 +50,90 @@ pub enum AgentEvent {
     Exit { code: i32 },
 }
 
-/// Sidecar JSON event from stdout (deserialized).
+/// Sidecar JSON event from stdout — tagged enum for compile-time field safety.
+/// Each variant declares only its expected fields; unknown fields are silently
+/// ignored (serde default). Missing required fields cause a deserialization error.
 #[derive(Debug, Deserialize)]
-#[serde(rename_all = "camelCase")]
-struct SidecarEvent {
-    evt: String,
-    #[serde(default)]
-    tab_id: String,
-    // Optional fields — different events use different subsets
-    #[serde(default)]
-    text: String,
-    #[serde(default)]
-    streaming: bool,
-    #[serde(default)]
-    tool: String,
-    #[serde(default)]
-    input: Option<serde_json::Value>,
-    #[serde(default)]
-    output: String,
-    #[serde(default)]
-    success: bool,
-    #[serde(default)]
-    description: String,
-    #[serde(default)]
-    permission_suggestions: Option<serde_json::Value>,
-    // For ask_user events
-    #[serde(default)]
-    questions: Option<serde_json::Value>,
-    #[serde(default)]
-    tool_use_id: String,
-    #[serde(default)]
-    status: String,
-    #[serde(default)]
-    model: String,
-    #[serde(default)]
-    message: String,
-    #[serde(default)]
-    code: serde_json::Value,
-    #[serde(default)]
-    cost: f64,
-    #[serde(default)]
-    input_tokens: u64,
-    #[serde(default)]
-    output_tokens: u64,
-    #[serde(default)]
-    cache_read_tokens: u64,
-    #[serde(default)]
-    cache_write_tokens: u64,
-    #[serde(default)]
-    turns: u32,
-    #[serde(default)]
-    duration_ms: u64,
-    #[serde(default)]
-    is_error: bool,
-    #[serde(default)]
-    session_id: String,
-    #[serde(default)]
-    context_window: u64,
-    // For list_sessions response
-    #[serde(default)]
-    list: Option<serde_json::Value>,
-    // For get_messages response
-    #[serde(default)]
-    messages: Option<serde_json::Value>,
-    // For todo events
-    #[serde(default)]
-    todos: Option<serde_json::Value>,
-    // For autocomplete response
-    #[serde(default)]
-    suggestions: Option<Vec<String>>,
-    #[serde(default)]
-    seq: u32,
-    // For rate limit events
-    #[serde(default)]
-    utilization: f64,
-    // For commands/agents responses
-    #[serde(default)]
-    commands: Option<serde_json::Value>,
-    #[serde(default)]
-    agents: Option<serde_json::Value>,
-    // For task events (subagent tracking)
-    #[serde(default)]
-    task_id: String,
-    #[serde(default)]
-    task_type: String,
-    #[serde(default)]
-    total_tokens: u64,
-    #[serde(default)]
-    tool_uses: u32,
-    #[serde(default)]
-    last_tool_name: String,
-    #[serde(default)]
-    summary: String,
+#[serde(tag = "evt")]
+enum SidecarEvent {
+    #[serde(rename = "assistant")]
+    Assistant { #[serde(rename = "tabId")] tab_id: String, #[serde(default)] text: String, #[serde(default)] streaming: bool },
+    #[serde(rename = "tool_use")]
+    ToolUse { #[serde(rename = "tabId")] tab_id: String, #[serde(default)] tool: String, input: Option<serde_json::Value> },
+    #[serde(rename = "tool_result")]
+    ToolResult { #[serde(rename = "tabId")] tab_id: String, #[serde(default)] tool: String, #[serde(default)] output: String, #[serde(default)] success: bool },
+    #[serde(rename = "permission")]
+    Permission { #[serde(rename = "tabId")] tab_id: String, #[serde(default)] tool: String, #[serde(default)] description: String, #[serde(rename = "toolUseId", default)] tool_use_id: String, #[serde(rename = "permissionSuggestions")] permission_suggestions: Option<serde_json::Value> },
+    #[serde(rename = "ask_user")]
+    AskUser { #[serde(rename = "tabId")] tab_id: String, questions: Option<serde_json::Value> },
+    #[serde(rename = "input_required")]
+    InputRequired { #[serde(rename = "tabId")] tab_id: String },
+    #[serde(rename = "thinking")]
+    Thinking { #[serde(rename = "tabId")] tab_id: String, #[serde(default)] text: String },
+    #[serde(rename = "status")]
+    Status { #[serde(rename = "tabId")] tab_id: String, #[serde(default)] status: String, #[serde(default)] model: String, #[serde(rename = "sessionId", default)] session_id: String },
+    #[serde(rename = "progress")]
+    Progress { #[serde(rename = "tabId")] tab_id: String, #[serde(default)] message: String },
+    #[serde(rename = "result")]
+    Result {
+        #[serde(rename = "tabId")] tab_id: String,
+        #[serde(default)] cost: f64,
+        #[serde(rename = "inputTokens", default)] input_tokens: u64,
+        #[serde(rename = "outputTokens", default)] output_tokens: u64,
+        #[serde(rename = "cacheReadTokens", default)] cache_read_tokens: u64,
+        #[serde(rename = "cacheWriteTokens", default)] cache_write_tokens: u64,
+        #[serde(default)] turns: u32,
+        #[serde(rename = "durationMs", default)] duration_ms: u64,
+        #[serde(rename = "isError", default)] is_error: bool,
+        #[serde(rename = "sessionId", default)] session_id: String,
+        #[serde(rename = "contextWindow", default)] context_window: u64,
+    },
+    #[serde(rename = "todo")]
+    Todo { #[serde(rename = "tabId")] tab_id: String, todos: Option<serde_json::Value> },
+    #[serde(rename = "rateLimit")]
+    RateLimit { #[serde(rename = "tabId")] tab_id: String, #[serde(default)] utilization: f64 },
+    #[serde(rename = "commands_init")]
+    CommandsInit { #[serde(rename = "tabId")] tab_id: String, commands: Option<serde_json::Value>, agents: Option<serde_json::Value> },
+    #[serde(rename = "task_started")]
+    TaskStarted { #[serde(rename = "tabId")] tab_id: String, #[serde(rename = "taskId", default)] task_id: String, #[serde(default)] description: String, #[serde(rename = "taskType", default)] task_type: String },
+    #[serde(rename = "task_progress")]
+    TaskProgress { #[serde(rename = "tabId")] tab_id: String, #[serde(rename = "taskId", default)] task_id: String, #[serde(default)] description: String, #[serde(rename = "totalTokens", default)] total_tokens: u64, #[serde(rename = "toolUses", default)] tool_uses: u32, #[serde(rename = "durationMs", default)] duration_ms: u64, #[serde(rename = "lastToolName", default)] last_tool_name: String, #[serde(default)] summary: String },
+    #[serde(rename = "task_notification")]
+    TaskNotification { #[serde(rename = "tabId")] tab_id: String, #[serde(rename = "taskId", default)] task_id: String, #[serde(default)] status: String, #[serde(default)] summary: String, #[serde(rename = "totalTokens", default)] total_tokens: u64, #[serde(rename = "toolUses", default)] tool_uses: u32, #[serde(rename = "durationMs", default)] duration_ms: u64 },
+    #[serde(rename = "interrupted")]
+    Interrupted { #[serde(rename = "tabId")] tab_id: String },
+    #[serde(rename = "error")]
+    Error { #[serde(rename = "tabId")] tab_id: String, #[serde(default)] code: serde_json::Value, #[serde(default)] message: String },
+    #[serde(rename = "exit")]
+    Exit { #[serde(rename = "tabId")] tab_id: String, #[serde(default)] code: serde_json::Value },
+    #[serde(rename = "autocomplete")]
+    Autocomplete { #[serde(rename = "tabId")] tab_id: String, #[serde(default)] suggestions: Vec<String>, #[serde(default)] seq: u32 },
+    // Oneshot responses (not forwarded to tab channels)
+    #[serde(rename = "sessions")]
+    Sessions { #[serde(rename = "tabId")] tab_id: String, list: Option<serde_json::Value> },
+    #[serde(rename = "messages")]
+    Messages { #[serde(rename = "tabId")] tab_id: String, #[serde(rename = "sessionId", default)] session_id: String, messages: Option<serde_json::Value> },
+    #[serde(rename = "commands")]
+    Commands { #[serde(rename = "tabId")] tab_id: String, commands: Option<serde_json::Value>, agents: Option<serde_json::Value> },
+    #[serde(rename = "ready")]
+    Ready { #[serde(rename = "tabId", default)] tab_id: String },
+}
+
+impl SidecarEvent {
+    fn tab_id(&self) -> &str {
+        match self {
+            Self::Assistant { tab_id, .. } | Self::ToolUse { tab_id, .. } | Self::ToolResult { tab_id, .. }
+            | Self::Permission { tab_id, .. } | Self::AskUser { tab_id, .. } | Self::InputRequired { tab_id, .. }
+            | Self::Thinking { tab_id, .. } | Self::Status { tab_id, .. } | Self::Progress { tab_id, .. }
+            | Self::Result { tab_id, .. } | Self::Todo { tab_id, .. } | Self::RateLimit { tab_id, .. }
+            | Self::CommandsInit { tab_id, .. } | Self::TaskStarted { tab_id, .. }
+            | Self::TaskProgress { tab_id, .. } | Self::TaskNotification { tab_id, .. }
+            | Self::Interrupted { tab_id, .. } | Self::Error { tab_id, .. } | Self::Exit { tab_id, .. }
+            | Self::Autocomplete { tab_id, .. } | Self::Sessions { tab_id, .. }
+            | Self::Messages { tab_id, .. } | Self::Commands { tab_id, .. }
+            | Self::Ready { tab_id, .. } => tab_id,
+        }
+    }
 }
 
 type ChannelMap = Arc<RwLock<HashMap<String, Channel<AgentEvent>>>>;
@@ -354,125 +346,115 @@ impl SidecarManager {
                         }
                     };
 
-                    let tab_id = &event.tab_id;
+                    let tab_id = event.tab_id().to_string();
 
-                    // Handle oneshot responses (list_sessions, get_messages, commands)
-                    if event.evt == "sessions" || event.evt == "messages" || event.evt == "commands" {
-                        let value = if event.evt == "sessions" {
-                            event.list.unwrap_or(serde_json::Value::Array(vec![]))
-                        } else if event.evt == "messages" {
-                            serde_json::json!({
-                                "sessionId": event.session_id,
-                                "messages": event.messages.unwrap_or(serde_json::Value::Array(vec![]))
-                            })
-                        } else {
-                            serde_json::json!({
-                                "commands": event.commands.unwrap_or(serde_json::Value::Array(vec![])),
-                                "agents": event.agents.unwrap_or(serde_json::Value::Array(vec![]))
-                            })
-                        };
-
-                        if let Some(sender) = oneshots.lock().unwrap_or_else(|e| e.into_inner()).remove(tab_id) {
-                            let _ = sender.send(value);
+                    // Handle oneshot responses (not forwarded to tab channels)
+                    match &event {
+                        SidecarEvent::Sessions { list, .. } => {
+                            let value = list.clone().unwrap_or(serde_json::Value::Array(vec![]));
+                            if let Some(sender) = oneshots.lock().unwrap_or_else(|e| e.into_inner()).remove(&tab_id) {
+                                let _ = sender.send(value);
+                            }
+                            continue;
                         }
-                        continue;
-                    }
-
-                    // Convert to AgentEvent and send via channel
-                    let agent_event = match event.evt.as_str() {
-                        "assistant" => AgentEvent::Assistant { text: event.text, streaming: event.streaming },
-                        "tool_use" => {
-                            log_debug!("agent[{}]: tool_use tool={}", tab_id, event.tool);
-                            AgentEvent::ToolUse { tool: event.tool, input: event.input.unwrap_or(serde_json::Value::Null) }
-                        },
-                        "tool_result" => {
-                            if !event.success {
-                                log_warn!("agent[{}]: tool_result FAILED tool={} output={}", tab_id, event.tool, &event.output[..event.output.len().min(300)]);
-                            } else {
-                                log_debug!("agent[{}]: tool_result ok tool={}", tab_id, event.tool);
+                        SidecarEvent::Messages { session_id, messages, .. } => {
+                            let value = serde_json::json!({
+                                "sessionId": session_id,
+                                "messages": messages.clone().unwrap_or(serde_json::Value::Array(vec![]))
+                            });
+                            if let Some(sender) = oneshots.lock().unwrap_or_else(|e| e.into_inner()).remove(&tab_id) {
+                                let _ = sender.send(value);
                             }
-                            AgentEvent::ToolResult { tool: event.tool, output: event.output, success: event.success }
-                        },
-                        "permission" => {
-                            log_info!("agent[{}]: permission request tool={} desc={}", tab_id, event.tool, &event.description[..event.description.len().min(200)]);
-                            AgentEvent::Permission { tool: event.tool, description: event.description, tool_use_id: event.tool_use_id, suggestions: event.permission_suggestions.unwrap_or(serde_json::Value::Array(vec![])) }
-                        },
-                        "ask_user" => AgentEvent::Ask { questions: event.questions.unwrap_or(serde_json::Value::Array(vec![])) },
-                        "input_required" => AgentEvent::InputRequired {},
-                        "thinking" => AgentEvent::Thinking { text: event.text },
-                        "status" => {
-                            log_info!("agent[{}]: status={} model={} session={}", tab_id, event.status, event.model, event.session_id);
-                            AgentEvent::Status { status: event.status, model: event.model, session_id: event.session_id }
-                        },
-                        "progress" => AgentEvent::Progress { message: event.message },
-                        "result" => {
-                            log_info!("agent[{}]: result cost=${:.4} tokens={}in/{}out turns={} {}ms is_error={} session={}",
-                                tab_id, event.cost, event.input_tokens, event.output_tokens,
-                                event.turns, event.duration_ms, event.is_error, event.session_id);
-                            AgentEvent::Result {
-                            cost: event.cost,
-                            input_tokens: event.input_tokens,
-                            output_tokens: event.output_tokens,
-                            cache_read_tokens: event.cache_read_tokens,
-                            cache_write_tokens: event.cache_write_tokens,
-                            turns: event.turns,
-                            duration_ms: event.duration_ms,
-                            is_error: event.is_error,
-                            session_id: event.session_id,
-                            context_window: event.context_window,
+                            continue;
+                        }
+                        SidecarEvent::Commands { commands, agents, .. } => {
+                            let value = serde_json::json!({
+                                "commands": commands.clone().unwrap_or(serde_json::Value::Array(vec![])),
+                                "agents": agents.clone().unwrap_or(serde_json::Value::Array(vec![]))
+                            });
+                            if let Some(sender) = oneshots.lock().unwrap_or_else(|e| e.into_inner()).remove(&tab_id) {
+                                let _ = sender.send(value);
                             }
-                        },
-                        "todo" => AgentEvent::Todo { todos: event.todos.unwrap_or(serde_json::Value::Array(vec![])) },
-                        "rateLimit" => AgentEvent::RateLimit { utilization: event.utilization },
-                        "commands_init" => AgentEvent::CommandsInit {
-                            commands: event.commands.unwrap_or(serde_json::Value::Array(vec![])),
-                            agents: event.agents.unwrap_or(serde_json::Value::Array(vec![])),
-                        },
-                        "task_started" => AgentEvent::TaskStarted {
-                            task_id: event.task_id,
-                            description: event.description,
-                            task_type: event.task_type,
-                        },
-                        "task_progress" => AgentEvent::TaskProgress {
-                            task_id: event.task_id,
-                            description: event.description,
-                            total_tokens: event.total_tokens,
-                            tool_uses: event.tool_uses,
-                            duration_ms: event.duration_ms,
-                            last_tool_name: event.last_tool_name,
-                            summary: event.summary,
-                        },
-                        "task_notification" => AgentEvent::TaskNotification {
-                            task_id: event.task_id,
-                            status: event.status,
-                            summary: event.summary,
-                            total_tokens: event.total_tokens,
-                            tool_uses: event.tool_uses,
-                            duration_ms: event.duration_ms,
-                        },
-                        "interrupted" => AgentEvent::Interrupted {},
-                        "error" => {
-                            let code_str = event.code.as_str().unwrap_or("unknown").to_string();
-                            log_error!("agent[{}]: ERROR code={} message={}", tab_id, code_str, &event.message[..event.message.len().min(500)]);
-                            AgentEvent::Error { code: code_str, message: event.message }
-                        },
-                        "exit" => {
-                            let exit_code = event.code.as_i64().unwrap_or_else(|| event.code.as_str().and_then(|s| s.parse().ok()).unwrap_or(-1)) as i32;
-                            log_info!("agent[{}]: exit code={}", tab_id, exit_code);
-                            AgentEvent::Exit { code: exit_code }
-                        },
-                        "autocomplete" => AgentEvent::Autocomplete {
-                            suggestions: event.suggestions.unwrap_or_default(),
-                            seq: event.seq,
-                        },
-                        "ready" => {
+                            continue;
+                        }
+                        SidecarEvent::Ready { .. } => {
                             log_info!("sidecar: ready signal received");
                             continue;
                         }
-                        other => {
-                            log_warn!("sidecar: unknown event type: {other}");
-                            continue;
+                        _ => {}
+                    }
+
+                    // Convert to AgentEvent and send via channel
+                    let agent_event = match event {
+                        SidecarEvent::Assistant { text, streaming, .. } => {
+                            AgentEvent::Assistant { text, streaming }
                         }
+                        SidecarEvent::ToolUse { tool, input, .. } => {
+                            log_debug!("agent[{}]: tool_use tool={}", tab_id, tool);
+                            AgentEvent::ToolUse { tool, input: input.unwrap_or(serde_json::Value::Null) }
+                        }
+                        SidecarEvent::ToolResult { tool, output, success, .. } => {
+                            if !success {
+                                log_warn!("agent[{}]: tool_result FAILED tool={} output={}", tab_id, tool, &output[..output.len().min(300)]);
+                            } else {
+                                log_debug!("agent[{}]: tool_result ok tool={}", tab_id, tool);
+                            }
+                            AgentEvent::ToolResult { tool, output, success }
+                        }
+                        SidecarEvent::Permission { tool, description, tool_use_id, permission_suggestions, .. } => {
+                            log_info!("agent[{}]: permission request tool={} desc={}", tab_id, tool, &description[..description.len().min(200)]);
+                            AgentEvent::Permission { tool, description, tool_use_id, suggestions: permission_suggestions.unwrap_or(serde_json::Value::Array(vec![])) }
+                        }
+                        SidecarEvent::AskUser { questions, .. } => {
+                            AgentEvent::Ask { questions: questions.unwrap_or(serde_json::Value::Array(vec![])) }
+                        }
+                        SidecarEvent::InputRequired { .. } => AgentEvent::InputRequired {},
+                        SidecarEvent::Thinking { text, .. } => AgentEvent::Thinking { text },
+                        SidecarEvent::Status { status, model, session_id, .. } => {
+                            log_info!("agent[{}]: status={} model={} session={}", tab_id, status, model, session_id);
+                            AgentEvent::Status { status, model, session_id }
+                        }
+                        SidecarEvent::Progress { message, .. } => AgentEvent::Progress { message },
+                        SidecarEvent::Result { cost, input_tokens, output_tokens, cache_read_tokens, cache_write_tokens, turns, duration_ms, is_error, session_id, context_window, .. } => {
+                            log_info!("agent[{}]: result cost=${:.4} tokens={}in/{}out turns={} {}ms is_error={} session={}",
+                                tab_id, cost, input_tokens, output_tokens, turns, duration_ms, is_error, session_id);
+                            AgentEvent::Result { cost, input_tokens, output_tokens, cache_read_tokens, cache_write_tokens, turns, duration_ms, is_error, session_id, context_window }
+                        }
+                        SidecarEvent::Todo { todos, .. } => {
+                            AgentEvent::Todo { todos: todos.unwrap_or(serde_json::Value::Array(vec![])) }
+                        }
+                        SidecarEvent::RateLimit { utilization, .. } => AgentEvent::RateLimit { utilization },
+                        SidecarEvent::CommandsInit { commands, agents, .. } => {
+                            AgentEvent::CommandsInit {
+                                commands: commands.unwrap_or(serde_json::Value::Array(vec![])),
+                                agents: agents.unwrap_or(serde_json::Value::Array(vec![])),
+                            }
+                        }
+                        SidecarEvent::TaskStarted { task_id, description, task_type, .. } => {
+                            AgentEvent::TaskStarted { task_id, description, task_type }
+                        }
+                        SidecarEvent::TaskProgress { task_id, description, total_tokens, tool_uses, duration_ms, last_tool_name, summary, .. } => {
+                            AgentEvent::TaskProgress { task_id, description, total_tokens, tool_uses, duration_ms, last_tool_name, summary }
+                        }
+                        SidecarEvent::TaskNotification { task_id, status, summary, total_tokens, tool_uses, duration_ms, .. } => {
+                            AgentEvent::TaskNotification { task_id, status, summary, total_tokens, tool_uses, duration_ms }
+                        }
+                        SidecarEvent::Interrupted { .. } => AgentEvent::Interrupted {},
+                        SidecarEvent::Error { code, message, .. } => {
+                            let code_str = code.as_str().unwrap_or("unknown").to_string();
+                            log_error!("agent[{}]: ERROR code={} message={}", tab_id, code_str, &message[..message.len().min(500)]);
+                            AgentEvent::Error { code: code_str, message }
+                        }
+                        SidecarEvent::Exit { code, .. } => {
+                            let exit_code = code.as_i64().unwrap_or_else(|| code.as_str().and_then(|s| s.parse().ok()).unwrap_or(-1)) as i32;
+                            log_info!("agent[{}]: exit code={}", tab_id, exit_code);
+                            AgentEvent::Exit { code: exit_code }
+                        }
+                        SidecarEvent::Autocomplete { suggestions, seq, .. } => {
+                            AgentEvent::Autocomplete { suggestions, seq }
+                        }
+                        // Oneshot/Ready variants already handled above
+                        SidecarEvent::Sessions { .. } | SidecarEvent::Messages { .. } | SidecarEvent::Commands { .. } | SidecarEvent::Ready { .. } => unreachable!(),
                     };
 
                     // Send to the matching channel.
@@ -481,13 +463,13 @@ impl SidecarManager {
                     let is_exit = matches!(&agent_event, AgentEvent::Exit { .. });
                     if is_exit {
                         let mut guard = channels.write().unwrap_or_else(|e| e.into_inner());
-                        if let Some(channel) = guard.get(tab_id) {
+                        if let Some(channel) = guard.get(&tab_id) {
                             let _ = channel.send(agent_event);
                         }
-                        guard.remove(tab_id);
+                        guard.remove(&tab_id);
                     } else {
                         let guard = channels.read().unwrap_or_else(|e| e.into_inner());
-                        if let Some(channel) = guard.get(tab_id) {
+                        if let Some(channel) = guard.get(&tab_id) {
                             let _ = channel.send(agent_event);
                         }
                     }
