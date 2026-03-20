@@ -2,7 +2,7 @@
 
 **Version:** 1.0.0
 **Platform:** Windows only
-**Last verified:** 2026-03-15
+**Last verified:** 2026-03-20
 
 ---
 
@@ -24,9 +24,7 @@
 
 ## 1. Project Overview
 
-<!-- Source: CLAUDE.md:1-3 -->
-
-Anvil is a Windows-only Tauri 2 desktop application for selecting and launching Claude Code Agent SDK sessions in tabbed terminals. Users select a project from a scanned directory list, choose a model and settings, then launch an interactive agent session rendered in an embedded xterm.js terminal with custom ANSI rendering.
+Anvil is a Windows-only Tauri 2 desktop application for selecting and launching Claude Code Agent SDK sessions in a tabbed interface. Users select a project from a scanned directory list, choose a model and settings, then launch an interactive agent session rendered in a React-based dual-view architecture (chat view or terminal view).
 
 ### Tech Stack
 
@@ -35,7 +33,8 @@ Anvil is a Windows-only Tauri 2 desktop application for selecting and launching 
 | Frontend framework | React | 19.x |
 | Language | TypeScript | 5.7+ |
 | Bundler | Vite | 6.x |
-| Terminal emulator | xterm.js (with WebGL addon) | 5.5.0 |
+| Chat rendering | react-markdown, react-syntax-highlighter, remark-gfm | -- |
+| Virtual scrolling | @tanstack/react-virtual | -- |
 | Backend runtime | Rust (edition 2021) | -- |
 | Desktop framework | Tauri | 2.x |
 | Agent SDK | `@anthropic-ai/claude-agent-sdk` | latest |
@@ -46,22 +45,23 @@ Anvil is a Windows-only Tauri 2 desktop application for selecting and launching 
 
 ### Key Capabilities
 
-<!-- Source: main.rs:113-139, types.ts:8-23, sidecar/sidecar.js:1-4 -->
-
-- Tabbed terminal interface with concurrent agent sessions via Claude Agent SDK
-- Project directory scanning with git branch/dirty status detection (`projects.rs:218-255`)
-- 5 Claude models, 3 effort levels (`types.ts:63-71`)
+- Tabbed interface with concurrent agent sessions via Claude Agent SDK
+- Dual-view architecture: ChatView (rich markdown) and TerminalView (compact monospace), switchable per-session
+- Project directory scanning with git branch/dirty status detection (`projects.rs`)
+- 5 Claude models, 3 effort levels, 3 permission modes (`types.ts`)
 - Session resume, fork, and live model switching via Agent SDK
-- 10 dark themes (8 standard + 2 retro) with live switching (`types.ts:98-191`)
-- Session restore across app restarts (`useTabManager.ts:49-72`)
-- File drag-and-drop into agent input (`Terminal.tsx:716-730`)
-- Configurable font family and size (`types.ts:34-53`)
+- Themes loaded from JSON files (`data/themes/`), including light themes, with live switching
+- Session restore across app restarts (`useTabManager.ts`)
+- File drag-and-drop and image paste into agent input
+- Configurable font family and size
 - Custom frameless window with resize handles and two tab layouts (horizontal bar or vertical sidebar)
 - System prompts managed as `.md` files with YAML frontmatter (`prompts.rs`)
-- ANSI-rendered agent output with tool use boxes, permission prompts, animated spinner (`ansiRenderer.ts`, `Terminal.tsx:533-561`)
-- Bookmark navigation within terminal sessions
+- Agent task tracking (subagent spawning with progress and notifications)
+- Slash command and @agent autocomplete from SDK
 - Usage statistics dashboard reading Claude Code JSONL logs (`usage_stats.rs`)
 - Session browser for listing and inspecting past Agent SDK sessions
+- Session panel for quick resume/fork of past sessions
+- Onboarding overlay for first-time users
 
 ---
 
@@ -73,8 +73,6 @@ Anvil is a Windows-only Tauri 2 desktop application for selecting and launching 
 - **Node.js** (for frontend build and sidecar runtime -- resolved via PATH, `%LOCALAPPDATA%\anvil\node\`, or `%ProgramFiles%\nodejs\`)
 - **Rust toolchain** (for Tauri backend)
 - **Claude Agent SDK** -- installed automatically by the sidecar (`npm install --production` in `sidecar/`)
-
-<!-- Source: sidecar.rs:109-149, sidecar.rs:410-439 -->
 
 ### Development
 
@@ -94,7 +92,7 @@ cargo tauri dev
 cargo tauri build
 ```
 
-**Source:** `app/src-tauri/tauri.conf.json:6-11`
+**Source:** `app/src-tauri/tauri.conf.json`
 
 - Dev server URL: `http://localhost:1420`
 - Frontend dist output: `app/dist/`
@@ -114,7 +112,7 @@ The app launches a single frameless window:
 | Decorations | `false` (custom title bar) |
 | CSP | `default-src 'self'; style-src 'self' 'unsafe-inline'` |
 
-**Source:** `app/src-tauri/tauri.conf.json:14-28`
+**Source:** `app/src-tauri/tauri.conf.json`
 
 ---
 
@@ -136,7 +134,12 @@ graph TB
 
             subgraph "Per Tab"
                 NTP["NewTabPage<br/>Project picker"]
-                TER["Terminal<br/>xterm.js + ANSI renderer"]
+                AV["AgentView<br/>View switcher"]
+                CV["ChatView<br/>Rich markdown"]
+                TV["TerminalView<br/>Compact monospace"]
+                SC3["useSessionController<br/>Session lifecycle"]
+                SES["SessionBrowser"]
+                TRV["TranscriptView"]
                 EB["ErrorBoundary"]
             end
 
@@ -148,6 +151,7 @@ graph TB
 
             SC2["SessionConfig"]
             PL["ProjectList"]
+            SP["SessionPanel"]
             MOD["Modal"]
 
             App --> TBR
@@ -156,7 +160,10 @@ graph TB
             NTP --> PL
             NTP --> SC2
             NTP --> MOD
-            EB --> TER
+            AV --> SC3
+            AV --> CV
+            AV --> TV
+            EB --> AV
         end
 
         subgraph "Rust Backend"
@@ -166,6 +173,7 @@ graph TB
             PROJ["projects.rs<br/>Scanning & settings"]
             PR["prompts.rs<br/>System prompts CRUD"]
             US["usage_stats.rs<br/>Token usage parsing"]
+            TH["themes.rs<br/>Theme loading"]
             LOG["logging.rs"]
             WATCH["watcher.rs"]
 
@@ -174,6 +182,7 @@ graph TB
             CMD --> PROJ
             CMD --> PR
             CMD --> US
+            CMD --> TH
         end
 
         subgraph "Node.js Sidecar"
@@ -181,7 +190,7 @@ graph TB
         end
     end
 
-    TER -- "Tauri Channel<br/>(AgentEvent)" --> CMD
+    AV -- "Tauri Channel<br/>(AgentEvent)" --> CMD
     CMD -- "JSON-lines<br/>(stdin/stdout)" --> SJS
     NTP -- "invoke()" --> CMD
     UP -- "invoke()" --> CMD
@@ -191,16 +200,15 @@ graph TB
 
 ### Data Flow
 
-<!-- Source: main.rs:19-150, sidecar.rs:108-149, Terminal.tsx:589-681, sidecar.js:20-169 -->
-
 1. **App startup:** `main.rs` initializes logging, creates a `SidecarManager` (which finds Node.js, installs sidecar dependencies if needed, and spawns the sidecar process), syncs the marketplace, then launches the Tauri application.
-2. **Frontend mount:** React renders `App` inside `ProjectsProvider`. `useProjects` loads settings and usage data from disk via IPC, then scans project directories. `useTabManager` restores saved sessions from `load_session`.
+2. **Frontend mount:** React renders `App` inside `ProjectsProvider`. `useProjects` loads settings, themes, and usage data from disk via IPC, then scans project directories. `useTabManager` restores saved sessions from `load_session`.
 3. **Project selection:** User picks a project in `NewTabPage`, which calls `onLaunch` to convert the tab from `new-tab` to `agent` type.
-4. **Agent spawn:** `Terminal` component mounts, creates an xterm.js instance, calls `spawnAgent()` which opens a Tauri `Channel<AgentEvent>` and invokes `spawn_agent` IPC. The backend sends a `create` command to the sidecar over stdin. The sidecar creates a `query()` session via the Agent SDK.
-5. **Event loop:** The sidecar emits JSON-line events to stdout. The Rust `SidecarManager` reads these, converts them to `AgentEvent` variants, and routes them to the matching tab's Tauri Channel. The frontend's `handleAgentEvent` callback renders each event as ANSI text in xterm.js via `renderAgentEvent()`.
-6. **User input:** When the SDK needs input (emits `input_required`), the terminal enters `awaiting_input` state. User types into a buffer echoed locally, then on Enter the text is sent via `agent_send` IPC to the sidecar's `send` command, which resolves the SDK's input stream promise.
-7. **Permission handling:** Tool permission requests arrive as `permission` events with optional `permissionSuggestions`. The terminal enters `awaiting_permission` state and renders an interactive permission selector (Yes / session-allow options from suggestions / No). User response is sent via `agent_permission` IPC with optional `updatedPermissions`.
-8. **Cleanup:** On tab close, `killAgent()` sends a `kill` command to the sidecar (which aborts the SDK query). On window close, `SidecarManager::shutdown()` terminates the Win32 Job Object (killing the entire process tree), then kills the direct child as fallback.
+4. **Agent spawn:** `AgentView` component mounts, instantiates `useSessionController` which calls `spawnAgent()`. This opens a Tauri `Channel<AgentEvent>` and invokes `spawn_agent` IPC. The backend sends a `create` command to the sidecar over stdin. The sidecar creates a `query()` session via the Agent SDK.
+5. **Event loop:** The sidecar emits JSON-line events to stdout. The Rust `SidecarManager` reads these, deserializes each line as a `SidecarEvent` (tagged enum with `#[serde(tag = "evt")]`), converts to `AgentEvent` variants, and routes them to the matching tab's Tauri Channel. The `useSessionController` hook processes each event into `ChatMessage` objects rendered by either `ChatView` or `TerminalView`.
+6. **User input:** When the SDK emits `input_required`, the session controller enters `awaiting_input` state. User types into `ChatInput`, which on submit sends the text via `agent_send` IPC to the sidecar's `send` command, resolving the SDK's input stream promise.
+7. **Permission handling:** Tool permission requests arrive as `permission` events with optional `permissionSuggestions`. The `PermissionCard` component renders an interactive permission prompt. User response is sent via `agent_permission` IPC with the `toolUseId` and optional `updatedPermissions`.
+8. **Ask handling:** `AskUserQuestion` tool calls arrive as `ask` events with structured questions/options. The `AskQuestionCard` renders selection UI and sends responses via `agent_ask_response` IPC.
+9. **Cleanup:** On tab close, `killAgent()` sends a `kill` command to the sidecar (which aborts the SDK query). On window close, `SidecarManager::shutdown()` terminates the Win32 Job Object (killing the entire process tree), then kills the direct child as fallback.
 
 ---
 
@@ -208,14 +216,13 @@ graph TB
 
 ### Module Overview
 
-<!-- Source: main.rs:4-12 -->
-
 | Module | File | Purpose |
 |--------|------|---------|
 | `main` | `main.rs` | App entry point, Tauri setup, window close handler |
 | `commands` | `commands.rs` | All Tauri IPC command handlers |
 | `sidecar` | `sidecar.rs` | Node.js sidecar lifecycle and JSON-lines protocol |
 | `projects` | `projects.rs` | Project scanning, settings/usage persistence |
+| `themes` | `themes.rs` | Theme loading from JSON files in `data/themes/` |
 | `prompts` | `prompts.rs` | System prompt file CRUD (`.md` with YAML frontmatter) |
 | `usage_stats` | `usage_stats.rs` | Token usage statistics from Claude Code JSONL logs |
 | `logging` | `logging.rs` | File + stderr logging with macros |
@@ -227,11 +234,9 @@ graph TB
 
 **Source:** `app/src-tauri/src/main.rs`
 
-<!-- Source: main.rs:1-150 -->
+Entry point. Hides the console window in release builds via `#![cfg_attr(not(debug_assertions), windows_subsystem = "windows")]`. Sets a global panic hook that logs panics from any thread. Creates a `SidecarManager` (wrapped in `Arc`), then builds the Tauri application with all IPC handlers registered. Includes plugins for single instance, clipboard manager, dialog, and shell access. On window close (label `"main"`), calls `sidecar_manager.shutdown()` to terminate the sidecar process.
 
-Entry point. Hides the console window in release builds via `#![cfg_attr(not(debug_assertions), windows_subsystem = "windows")]`. Sets a global panic hook that logs panics from any thread. Creates a `SidecarManager` (wrapped in `Arc`), then builds the Tauri application with all IPC handlers registered. Includes plugins for single instance, clipboard manager, and shell access. On window close (label `"main"`), calls `sidecar_manager.shutdown()` to terminate the sidecar process.
-
-**Setup phase** (`main.rs:64-111`):
+**Setup phase:**
 1. Loads initial settings.
 2. Creates a `ProjectWatcher` for filesystem monitoring.
 3. Syncs the anvil-toolset marketplace (synchronous to avoid race conditions).
@@ -241,8 +246,6 @@ Entry point. Hides the console window in release builds via `#![cfg_attr(not(deb
 
 **Source:** `app/src-tauri/src/sidecar.rs`
 
-<!-- Source: sidecar.rs:98-401 -->
-
 The `SidecarManager` manages a single long-lived Node.js child process that wraps the `@anthropic-ai/claude-agent-sdk`. All agent sessions for all tabs share this one sidecar process, multiplexed by `tabId`.
 
 **Fields:**
@@ -251,48 +254,61 @@ The `SidecarManager` manages a single long-lived Node.js child process that wrap
 |-------|------|---------|
 | `stdin` | `Mutex<Option<ChildStdin>>` | Write end of sidecar stdin pipe |
 | `channels` | `Arc<Mutex<HashMap<String, Channel<AgentEvent>>>>` | Per-tab event channels |
-| `oneshots` | `Arc<Mutex<HashMap<String, oneshot::Sender<Value>>>>` | One-shot responses for queries (list_sessions, get_messages) |
+| `oneshots` | `Arc<Mutex<HashMap<String, oneshot::Sender<Value>>>>` | One-shot responses for queries (list_sessions, get_messages, commands) |
 | `available` | `AtomicBool` | Whether sidecar is running |
 | `_process` | `Mutex<Option<Child>>` | Sidecar child process handle |
-| `_job` | `Mutex<Option<JobHandle>>` | Win32 Job Object — kills entire process tree on close |
+| `_job` | `Mutex<Option<JobHandle>>` | Win32 Job Object -- kills entire process tree on close |
 | `unavailable_reason` | `Mutex<Option<String>>` | Human-readable reason if unavailable |
 
-**Initialization** (`SidecarManager::new()`, `sidecar.rs:109-149`):
+**Initialization** (`SidecarManager::new()`):
 
 1. Finds Node.js via `find_node()`: checks PATH, then `%LOCALAPPDATA%\anvil\node\node.exe`, then `%ProgramFiles%\nodejs\node.exe`.
-2. Ensures sidecar dependencies are installed (`ensure_deps()`, `sidecar.rs:152-189`): checks for `node_modules` directory, runs `npm install --production` if missing.
-3. Resolves the sidecar directory (`resolve_sidecar_dir()`, `sidecar.rs:192-216`): production mode looks for `sidecar/` next to the exe; dev mode traverses up from `target/debug/` to find the project root.
+2. Ensures sidecar dependencies are installed (`ensure_deps()`): checks for `node_modules` directory, runs `npm install --production` if missing.
+3. Resolves the sidecar directory (`resolve_sidecar_dir()`): production mode looks for `sidecar/` next to the exe; dev mode traverses up from `target/debug/` to find the project root.
 4. Starts the sidecar process (`start_sidecar()`): spawns `node sidecar.js` with `CREATE_NO_WINDOW` flag, then creates a Win32 Job Object with `JOB_OBJECT_LIMIT_KILL_ON_JOB_CLOSE` and assigns the child process to it. This ensures all descendant processes (Agent SDK subprocesses) are terminated when the job handle is closed.
 
 **Reader threads:**
 
-- **stdout reader** (`sidecar.rs:247-334`): Reads JSON-lines from sidecar stdout using `BufReader`. Deserializes each line into a `SidecarEvent`, converts to `AgentEvent`, and sends to the matching tab's Tauri Channel. Handles special `sessions` and `messages` events via oneshot channels. Removes the channel on `exit` events.
-- **stderr reader** (`sidecar.rs:337-348`): Logs all sidecar stderr output to the Anvil log file.
+- **stdout reader:** Reads JSON-lines from sidecar stdout using `BufReader`. Deserializes each line into a `SidecarEvent` (tagged enum with `#[serde(tag = "evt")]`), converts to `AgentEvent`, and sends to the matching tab's Tauri Channel. Handles special `sessions`, `messages`, and `commands` events via oneshot channels. Removes the channel on `exit` events.
+- **stderr reader:** Logs all sidecar stderr output to the Anvil log file.
 
-**AgentEvent enum** (`sidecar.rs:15-37`):
+**AgentEvent enum** (`sidecar.rs`):
 
 ```rust
 pub enum AgentEvent {
     Assistant { text: String, streaming: bool },
     ToolUse { tool: String, input: serde_json::Value },
     ToolResult { tool: String, output: String, success: bool },
-    Permission { tool: String, description: String, suggestions: serde_json::Value },
+    Permission { tool: String, description: String, tool_use_id: String, suggestions: serde_json::Value },
+    Ask { questions: serde_json::Value },
     InputRequired {},
     Thinking { text: String },
-    Status { status: String, model: String },
+    Status { status: String, model: String, session_id: String },
     Progress { message: String },
     Result {
         cost: f64, input_tokens: u64, output_tokens: u64,
         cache_read_tokens: u64, cache_write_tokens: u64,
         turns: u32, duration_ms: u64, is_error: bool, session_id: String,
+        context_window: u64,
     },
+    Todo { todos: serde_json::Value },
     Autocomplete { suggestions: Vec<String>, seq: u32 },
+    RateLimit { utilization: f64 },
+    CommandsInit { commands: serde_json::Value, agents: serde_json::Value },
+    TaskStarted { task_id: String, description: String, task_type: String },
+    TaskProgress { task_id: String, description: String, total_tokens: u64, tool_uses: u32, duration_ms: u64, last_tool_name: String, summary: String },
+    TaskNotification { task_id: String, status: String, summary: String, total_tokens: u64, tool_uses: u32, duration_ms: u64 },
+    Interrupted {},
     Error { code: String, message: String },
     Exit { code: i32 },
 }
 ```
 
 Serialized with `serde(rename_all = "camelCase", tag = "type")`.
+
+**SidecarEvent enum** (`sidecar.rs`):
+
+Tagged enum deserialized with `#[serde(tag = "evt")]`. Each variant declares only its expected fields; unknown fields are silently ignored. Variants mirror the sidecar's JSON-line `evt` field values (`assistant`, `tool_use`, `tool_result`, `permission`, `ask_user`, `input_required`, `thinking`, `status`, `progress`, `result`, `todo`, `rateLimit`, `commands_init`, `task_started`, `task_progress`, `task_notification`, `interrupted`, `error`, `exit`, `autocomplete`, `sessions`, `messages`, `commands`, `ready`).
 
 **Key methods:**
 
@@ -308,7 +324,7 @@ Serialized with `serde(rename_all = "camelCase", tag = "type")`.
 
 **Source:** `app/src-tauri/src/projects.rs`
 
-#### scan_projects (`projects.rs`)
+#### scan_projects
 
 1. Iterates each parent directory in `project_dirs`.
 2. Lists immediate subdirectories, skipping hidden directories (names starting with `.`).
@@ -347,8 +363,6 @@ Validates the project name (no path separators, no `..`, no ANSI escape sequence
 
 **Source:** `app/src-tauri/src/projects.rs`
 
-<!-- Source: projects.rs:16-66 -->
-
 All data files are stored in `dirs::data_local_dir() / "anvil"` (typically `%LOCALAPPDATA%\anvil`).
 
 | File | Path | Purpose |
@@ -359,7 +373,7 @@ All data files are stored in `dirs::data_local_dir() / "anvil"` (typically `%LOC
 | Session data | `anvil-session.json` | Tab restore state |
 | Log file | `anvil.log` | Application log (next to exe) |
 
-#### Settings struct (`projects.rs:26-66`)
+#### Settings struct (`projects.rs`)
 
 | Field | Type | Default |
 |-------|------|---------|
@@ -367,10 +381,10 @@ All data files are stored in `dirs::data_local_dir() / "anvil"` (typically `%LOC
 | `model_idx` | `usize` | `0` |
 | `effort_idx` | `usize` | `0` |
 | `sort_idx` | `usize` | `0` |
-| `theme_idx` | `usize` | `0` |
+| `theme_idx` | `usize` | `1` (Dracula) |
 | `font_family` | `String` | `"Cascadia Code"` |
 | `font_size` | `u32` | `14` |
-| `skip_perms` | `bool` | `false` |
+| `perm_mode_idx` | `usize` | `0` |
 | `autocompact` | `bool` | `false` |
 | `active_prompt_ids` | `Vec<String>` | `[]` |
 | `security_gate` | `bool` | `true` |
@@ -379,8 +393,10 @@ All data files are stored in `dirs::data_local_dir() / "anvil"` (typically `%LOC
 | `project_labels` | `HashMap<String, String>` | `{}` |
 | `vertical_tabs` | `bool` | `false` |
 | `sidebar_width` | `u32` | `200` |
-| `autocomplete_enabled` | `bool` (via `extra`) | `true` (stored in `extra` via serde flatten) |
+| `session_panel_open` | `bool` | `false` |
 | `extra` | `HashMap<String, Value>` | `{}` (serde flatten, forward-compatible) |
+
+Frontend-only settings (stored via `extra` flatten): `autocomplete_enabled`, `view_style`, `hide_thinking`, `chat_font_family`, `chat_font_size`, `marketplace_global`, `onboarding_seen`.
 
 **Save strategy:** Atomic write via temp file + rename. Before overwriting, the current file is backed up to `.bak`. Load falls back to backup if primary is corrupt.
 
@@ -401,11 +417,32 @@ pub struct UsageEntry {
 
 Session data is an opaque `serde_json::Value` with a 1 MB size cap. Written atomically via temp file + rename.
 
+### Theme System
+
+**Source:** `app/src-tauri/src/themes.rs`, `app/src-tauri/data/themes/`
+
+Themes are stored as individual JSON files in `data/themes/` (next to the exe in production, `src-tauri/data/themes/` in development). Each file defines a `Theme` struct:
+
+```rust
+pub struct Theme {
+    pub name: String,
+    pub order: Option<i32>,      // Sort order (lower = earlier)
+    pub retro: Option<bool>,     // Enables retro mode CSS
+    pub colors: ThemeColors,
+    pub term_font: Option<String>,
+    pub term_font_size: Option<f64>,
+    pub ui_font: Option<String>,
+    pub ui_font_size: Option<f64>,
+}
+```
+
+The `load_themes` IPC command reads all `.json` files from the themes directory, sorts by `order` field, and returns them to the frontend. Themes include both dark and light variants. The frontend detects light themes via background luminance and sets `colorScheme` and a `.light-theme` class accordingly.
+
+Current theme files: `cyberpunk-2077`, `daisyui-retro`, `dracula`, `gandalf`, `kanagawa`, `light-arctic`, `light-paper`, `light-sakura`, `light-solarized`, `lofi`, `matrix`, `nord`, `synthwave`, `tokyo-night`.
+
 ### System Prompts
 
 **Source:** `app/src-tauri/src/prompts.rs`
-
-<!-- Source: prompts.rs:1-225 -->
 
 System prompts are stored as `.md` files in a `data/prompts/` directory (next to the exe in production, `src-tauri/data/prompts/` in development). Each file uses YAML frontmatter for metadata:
 
@@ -427,21 +464,17 @@ Actual prompt content here...
 | `update_prompt(id, name, desc, content)` | Updates existing file, renames if name changed |
 | `delete_prompt(id)` | Deletes the `.md` file |
 
-**Prompt composition** (in `App.tsx:73-79`): Active prompts (selected by `active_prompt_ids` in settings) are concatenated and passed to `spawnAgent()` as the `systemPrompt` parameter. The sidecar passes this to the SDK via `options.systemPrompt.append`.
+**Prompt composition** (in `App.tsx`): Active prompts (selected by `active_prompt_ids` in settings) are concatenated and passed to each `AgentView` instance. The sidecar passes this to the SDK via `options.systemPrompt.append`.
 
 ### Usage Statistics
 
 **Source:** `app/src-tauri/src/usage_stats.rs`
-
-<!-- Source: usage_stats.rs:1-50 -->
 
 Parses Claude Code's JSONL conversation logs from `%USERPROFILE%/.claude/projects/*/`. Computes per-day and per-model token usage and cost estimates over a configurable window (default 7 days). Uses model-specific pricing (opus/haiku/sonnet) for cost calculation.
 
 ### Logging
 
 **Source:** `app/src-tauri/src/logging.rs`
-
-<!-- Source: logging.rs:1-51 -->
 
 - Log file is placed next to the executable.
 - Log **rotation** on startup: `.log` -> `.log.1` -> `.log.2` -> `.log.3` (keeps up to 3 rotated files).
@@ -456,8 +489,6 @@ Parses Claude Code's JSONL conversation logs from `%USERPROFILE%/.claude/project
 
 **Source:** `app/src-tauri/src/watcher.rs`
 
-<!-- Source: watcher.rs:1-50 -->
-
 Watches project container directories for create/remove/rename events. Uses the `notify` crate with trailing-edge debounce (1 second quiet period). Emits `projects-changed` Tauri event to trigger frontend rescan. Updated when settings change (via the `save_settings` command).
 
 ---
@@ -465,8 +496,6 @@ Watches project container directories for create/remove/rename events. Uses the 
 ## 5. Node.js Sidecar
 
 **Source:** `sidecar/sidecar.js`
-
-<!-- Source: sidecar/sidecar.js:1-501, sidecar/package.json:1-10 -->
 
 The sidecar is a standalone Node.js process that wraps the `@anthropic-ai/claude-agent-sdk`. It communicates with the Rust backend via JSON-lines over stdin (commands) and stdout (events), with stderr used for logging.
 
@@ -483,42 +512,53 @@ The sidecar is a standalone Node.js process that wraps the `@anthropic-ai/claude
 
 | Command | Fields | Description |
 |---------|--------|-------------|
-| `create` | `tabId, cwd, model, effort, systemPrompt, skipPerms, allowedTools?` | Create new agent session |
+| `create` | `tabId, cwd, model, effort, systemPrompt, permMode, plugins?` | Create new agent session |
 | `send` | `tabId, text` | Send user message to session |
-| `resume` | `tabId, sessionId, cwd, model, effort, systemPrompt?, allowedTools?` | Resume an existing session |
-| `fork` | `tabId, sessionId, cwd, model, effort, systemPrompt?, allowedTools?` | Fork (branch from) an existing session |
+| `resume` | `tabId, sessionId, cwd, model, effort, permMode, plugins?` | Resume an existing session |
+| `fork` | `tabId, sessionId, cwd, model, effort, permMode, plugins?` | Fork (branch from) an existing session |
+| `interrupt` | `tabId` | Interrupt the current turn (graceful) |
 | `kill` | `tabId` | Kill a session |
-| `permission_response` | `tabId, allow, updatedPermissions?` | Respond to a tool permission request (with optional session-allow permissions) |
+| `permission_response` | `tabId, allow, toolUseId, updatedPermissions?` | Respond to a tool permission request |
+| `ask_user_response` | `tabId, answers` | Respond to an AskUserQuestion tool call |
 | `set_model` | `tabId, model` | Change model mid-session |
+| `set_perm_mode` | `tabId, permMode` | Change permission mode mid-session |
 | `list_sessions` | `tabId, cwd` | List past SDK sessions |
 | `get_messages` | `tabId, sessionId, dir` | Get messages from a past session |
 | `autocomplete` | `tabId, input, context, seq` | Request LLM-based input autocomplete suggestions |
+| `refreshCommands` | `tabId` | Refresh available slash commands and agents |
 
 **Events (stdout, JSON-lines):**
 
-| Event | Fields | Description |
+| Event (`evt`) | Fields | Description |
 |-------|--------|-------------|
 | `ready` | `tabId: "_control"` | Sidecar initialization complete |
 | `assistant` | `tabId, text, streaming` | Assistant text (streaming delta or complete) |
 | `tool_use` | `tabId, tool, input, toolUseId` | Tool invocation |
-| `tool_result` | `tabId, tool, output, success` | Tool execution result (via `tool_use_summary`; `tool` is always `"summary"`) |
-| `permission` | `tabId, tool, description, toolUseId, permissionSuggestions?` | Permission request for a tool (suggestions enable session-allow) |
+| `tool_result` | `tabId, tool, output, success` | Tool execution result |
+| `permission` | `tabId, tool, description, toolUseId, permissionSuggestions?` | Permission request for a tool |
+| `ask_user` | `tabId, questions` | AskUserQuestion tool call with structured questions |
 | `input_required` | `tabId` | SDK waiting for user input |
 | `thinking` | `tabId, text` | Extended thinking delta |
-| `status` | `tabId, status, model` | Session status change |
+| `status` | `tabId, status, model, sessionId` | Session status change |
 | `progress` | `tabId, message, tool` | Tool progress update |
-| `result` | `tabId, cost, inputTokens, outputTokens, ...` | Turn result with usage stats |
+| `result` | `tabId, cost, inputTokens, outputTokens, ..., contextWindow` | Turn result with usage stats |
+| `todo` | `tabId, todos` | Todo list updates |
+| `rateLimit` | `tabId, utilization` | Rate limit utilization (0-1) |
+| `commands_init` | `tabId, commands, agents` | Available slash commands and agents |
+| `task_started` | `tabId, taskId, description, taskType` | Subagent task started |
+| `task_progress` | `tabId, taskId, description, totalTokens, toolUses, durationMs, lastToolName, summary` | Subagent task progress |
+| `task_notification` | `tabId, taskId, status, summary, totalTokens, toolUses, durationMs` | Subagent task completed/failed/stopped |
+| `interrupted` | `tabId` | Agent turn was interrupted |
 | `error` | `tabId, code, message` | Error (query, rate limit, etc.) |
 | `exit` | `tabId, code` | Session ended |
 | `sessions` | `tabId, list` | Response to `list_sessions` |
 | `messages` | `tabId, sessionId, messages` | Response to `get_messages` |
-| `autocomplete` | `tabId, suggestions, seq` | Autocomplete suggestions (response to `autocomplete` command) |
+| `commands` | `tabId, commands, agents` | Response to `refreshCommands` |
+| `autocomplete` | `tabId, suggestions, seq` | Autocomplete suggestions |
 
 ### Session Lifecycle
 
-<!-- Source: sidecar.js:20-169 -->
-
-1. **Create:** `handleCreate()` builds SDK options (model, effort, system prompt appended to `claude_code` preset, permission mode), creates an async generator `inputStream()` that yields user messages on demand, and calls `query()` with it. When `skipPerms` is true, the SDK uses `bypassPermissions` mode.
+1. **Create:** `handleCreate()` builds SDK options (model, effort, system prompt appended to `claude_code` preset, permission mode from `permMode`), creates an async generator `inputStream()` that yields user messages on demand, and calls `query()` with it.
 2. **Input flow:** The `inputStream` generator blocks on a Promise. When the frontend sends a `send` command, `handleSend()` resolves the pending promise (or queues the text). The generator yields a `user` message to the SDK.
 3. **Output consumption:** `consumeQuery()` iterates the async generator from `query()`, mapping SDK message types to events:
    - `assistant` -> extract text blocks and tool_use blocks
@@ -526,11 +566,12 @@ The sidecar is a standalone Node.js process that wraps the `@anthropic-ai/claude
    - `result` -> usage stats, then emit `input_required` for next turn
    - `tool_progress` -> progress updates
    - `tool_use_summary` -> tool result summaries
-   - `rate_limit_event` -> rate limit warnings/rejections
+   - `rate_limit_event` -> rate limit utilization
 4. **Streaming deduplication:** A `hasStreamedText` flag tracks whether text was already emitted via `stream_event` deltas. If so, both text and thinking blocks in the complete `assistant` message are skipped to avoid duplication.
-5. **Permission handling:** When `skipPerms` is false, the `canUseTool` callback emits a `permission` event and returns a Promise. `handlePermissionResponse()` resolves it with `{behavior: "allow"}` or `{behavior: "deny", message: "Denied by user"}`.
-6. **Kill:** `handleKill()` pushes `null` into the input stream (sentinel), aborts the controller, resolves any pending permission as `deny`, and calls `query.close()`.
-7. **Shutdown:** When stdin closes (Rust drops the handle), all sessions are killed and the process exits.
+5. **Permission handling:** The `permMode` parameter controls the SDK's permission behavior (`plan`, `acceptEdits`, or `bypassPermissions`). When not bypassing, the `canUseTool` callback emits a `permission` event and returns a Promise. `handlePermissionResponse()` resolves it with `{behavior: "allow"}` or `{behavior: "deny", message: "Denied by user"}`.
+6. **Interrupt:** `handleInterrupt()` calls `query.interrupt()` for graceful turn interruption (the SDK finishes the current tool call).
+7. **Kill:** `handleKill()` pushes `null` into the input stream (sentinel), aborts the controller, resolves any pending permission as `deny`, and calls `query.close()`.
+8. **Shutdown:** When stdin closes (Rust drops the handle), all sessions are killed and the process exits.
 
 ---
 
@@ -548,16 +589,19 @@ graph TD
     TBS["TabSidebar (vertical)"]
     TTB["TitleBar"]
     NTP["NewTabPage"]
-    TER["Terminal"]
+    AV["AgentView"]
+    CV["ChatView"]
+    TV["TerminalView"]
     SES["SessionBrowser"]
+    TRV["TranscriptView"]
     USG["UsagePage"]
     SPP["SystemPromptPage"]
+    SP["SessionPanel"]
     EB["ErrorBoundary"]
     PL["ProjectList"]
     SC2["SessionConfig"]
     MOD["Modal"]
-    BK["BookmarkList"]
-    MM["Minimap"]
+    OB["OnboardingOverlay"]
 
     Root --> App
     App --> PP
@@ -571,11 +615,14 @@ graph TD
     AC -->|"type=usage"| USG
     AC -->|"type=system-prompt"| SPP
     AC -->|"type=sessions"| SES
-    EB --> TER
-    TER --> MM
-    TER --> BK
+    AC -->|"type=transcript"| TRV
+    AC --> SP
+    EB --> AV
+    AV -->|"view_style=chat"| CV
+    AV -->|"view_style=terminal"| TV
     NTP --> PL
     NTP --> SC2
+    NTP --> OB
 ```
 
 ### Components
@@ -584,28 +631,28 @@ graph TD
 
 **Source:** `app/src/App.tsx`
 
-<!-- Source: App.tsx:1-358 -->
-
 Root component. Wraps everything in `ProjectsProvider`. The inner `AppContent` uses `useTabManager` for tab state and renders:
 
 - 8 resize handles for the frameless window (using `appWindow.startResizeDragging`)
 - Either `TabBar` (horizontal) or `TitleBar` + `TabSidebar` (vertical), controlled by `settings.vertical_tabs`
 - A `.tab-content` container with one panel per tab
+- A `SessionPanel` (slide-in sidebar) for quick session resume/fork
 
 Tab types and their components:
 
 | Type | Component |
 |------|-----------|
 | `"new-tab"` | `NewTabPage` |
-| `"agent"` | `Terminal` (wrapped in `ErrorBoundary`) |
+| `"agent"` | `AgentView` (wrapped in `ErrorBoundary`) |
 | `"about"` | `AboutPage` |
 | `"usage"` | `UsagePage` |
 | `"system-prompt"` | `SystemPromptPage` |
 | `"sessions"` | `SessionBrowser` |
+| `"transcript"` | `TranscriptView` |
 
-**System prompt composition** (`App.tsx:73-79`): Loads all prompts from Rust on mount. Filters by `active_prompt_ids` from settings, concatenates content with `\n\n`, passes to each `Terminal` instance.
+**System prompt composition:** Loads all prompts from Rust on mount. Filters by `active_prompt_ids` from settings, concatenates content with `\n\n`, passes to each `AgentView` instance.
 
-**Global keyboard shortcuts** (`App.tsx:105-136`):
+**Global keyboard shortcuts:**
 
 | Key | Action |
 |-----|--------|
@@ -613,12 +660,51 @@ Tab types and their components:
 | Ctrl+F4 | Close active tab |
 | Ctrl+Tab | Next tab |
 | Ctrl+Shift+Tab | Previous tab |
+| Ctrl+1-9 | Switch to tab by number |
+| F1 | Toggle keyboard shortcuts overlay |
 | F12 | Toggle About tab |
 | Ctrl+U | Toggle Usage tab |
 | Ctrl+Shift+P | Toggle System Prompts tab |
-| Ctrl+Shift+H | Toggle Sessions tab |
+| Ctrl+Shift+H | Toggle Sessions browser tab |
+| Ctrl+Shift+S | Toggle Session panel |
 
-**Window title** updates dynamically: shows the active agent tab's project name and count of other agent tabs (`App.tsx:88-95`).
+**Window title** updates dynamically: shows the active agent tab's project name and count of other agent tabs.
+
+#### AgentView (`AgentView.tsx`)
+
+**Source:** `app/src/components/AgentView.tsx`
+
+Wrapper component that owns the `useSessionController` hook. Passes the session controller to whichever view is active (`ChatView` or `TerminalView`). This design ensures toggling `view_style` does NOT destroy the active agent session -- the controller persists across view switches.
+
+#### ChatView (`ChatView.tsx`)
+
+**Source:** `app/src/components/ChatView.tsx`
+
+Rich markdown chat view. Uses `@tanstack/react-virtual` for virtualized message rendering. Features:
+
+- `MessageBubble` -- assistant text rendered via react-markdown with syntax highlighting
+- `ToolCard` / `ToolGroup` -- collapsible tool use/result cards
+- `PermissionCard` -- interactive permission prompt with session-allow options
+- `AskQuestionCard` -- structured question/answer UI for AskUserQuestion tool
+- `ThinkingBlock` -- collapsible extended thinking display
+- `ResultBar` -- turn statistics (cost, tokens, duration)
+- `ErrorCard` -- error display
+- `RightSidebar` -- minimap, bookmarks, todos, agent tasks panels
+- `ChatInput` -- multiline input with slash command menu, @agent mentions, file attachments
+
+#### TerminalView (`TerminalView.tsx`)
+
+**Source:** `app/src/components/TerminalView.tsx`
+
+Compact monospace terminal-style view. Uses `@tanstack/react-virtual` for virtualized rendering. Features:
+
+- Inline markdown rendering (bold, italic, code)
+- `TermToolLine` / `TermToolGroup` -- compact tool use display
+- `TermPermPrompt` -- terminal-style permission prompt
+- `TermThinkingLine` -- compact thinking indicator
+- `TermErrorLine` -- error display
+- `TermResultLine` -- result statistics
+- Shared `ChatInput` and `RightSidebar` with ChatView
 
 #### TabBar (`TabBar.tsx`)
 
@@ -637,119 +723,19 @@ Wrapped in `React.memo`.
 
 **Source:** `app/src/components/TabSidebar.tsx`
 
-<!-- Source: TabSidebar.tsx:1-213 -->
-
 Vertical tab sidebar, shown when `settings.vertical_tabs` is true. Features:
 
 - Resizable width (140-360px) with drag handle
 - Context menu with "Save to Projects" for temporary tabs and "Close Tab"
 - Auto-scrolls active tab into view
-- Footer buttons for Usage and About toggles
+- Footer buttons for Usage and Session panel toggles
 - Closing animation (150ms delay)
-
-**Props:**
-
-| Prop | Type | Description |
-|------|------|-------------|
-| `tabs` | `Tab[]` | All tabs |
-| `activeTabId` | `string` | Currently active tab ID |
-| `sidebarWidth` | `number` | Current width in pixels |
-| `onActivate` | `(id: string) => void` | Switch to tab |
-| `onClose` | `(id: string) => void` | Close tab |
-| `onAdd` | `() => void` | Add new tab |
-| `onSaveToProjects` | `(tabId: string) => void` | Save temporary tab's project |
-| `onResizeWidth` | `(width: number) => void` | Persist new width |
-| `onResizing` | `(resizing: boolean) => void` | Active resize state |
 
 #### TitleBar (`TitleBar.tsx`)
 
 **Source:** `app/src/components/TitleBar.tsx`
 
-<!-- Source: TitleBar.tsx:1-37 -->
-
 Minimal title bar shown with vertical tab layout. Contains only the drag region and window controls (minimize, maximize/restore, close). Uses `data-tauri-drag-region` for window dragging.
-
-#### Terminal (`Terminal.tsx`)
-
-**Source:** `app/src/components/Terminal.tsx`
-
-<!-- Source: Terminal.tsx:141-812 -->
-
-**Props:**
-
-| Prop | Type | Description |
-|------|------|-------------|
-| `tabId` | `string` | Tab identifier |
-| `projectPath` | `string` | Absolute path to project |
-| `modelIdx` | `number` | Model index |
-| `effortIdx` | `number` | Effort level index |
-| `skipPerms` | `boolean` | Skip permissions flag |
-| `systemPrompt` | `string` | Concatenated system prompt text |
-| `themeIdx` | `number` | Theme index |
-| `themeColors` | `ThemeColors` | Current theme color values |
-| `fontFamily` | `string` | Terminal font family |
-| `fontSize` | `number` | Terminal font size |
-| `isActive` | `boolean` | Whether this tab is visible |
-| `onSessionCreated` | `(tabId, sessionId) => void` | Session ID callback |
-| `onNewOutput` | `(tabId) => void` | Background output callback |
-| `onExit` | `(tabId, code) => void` | Process exit callback |
-| `onError` | `(tabId, msg) => void` | Error callback |
-| `onRequestClose` | `(tabId) => void` | Close request callback |
-| `onAgentResult` | `(tabId, event) => void` | Optional callback on agent result events |
-| `onTaglineChange` | `(tabId, tagline) => void` | Tab tagline update |
-| `autocompleteEnabled` | `boolean` | Enable/disable input autocomplete (default true) |
-
-**Agent input state machine** (`Terminal.tsx:203`):
-
-| State | Description | User actions |
-|-------|-------------|--------------|
-| `idle` | Waiting for SDK to initialize | Input ignored |
-| `awaiting_input` | SDK ready for user message | Type, paste, backspace, Enter to send, Ctrl+C to clear, Tab/Right Arrow/Esc for autocomplete |
-| `processing` | SDK processing a request | Ctrl+C to interrupt (kill agent) |
-| `awaiting_permission` | SDK requesting tool permission | Y/y/Enter to allow, N/n to deny |
-
-**Lifecycle:**
-
-1. **Mount:** Creates xterm.js instance with WebGL addon (falls back to canvas on error). Attaches `FitAddon`, `Unicode11Addon`, and a `ResizeObserver`.
-2. **Spawn:** Deferred to `requestAnimationFrame` so the container has final layout. Writes the ASCII logo, then calls `spawnAgent()`.
-3. **Event handling:** `handleAgentEvent` callback processes each `AgentEvent` -- renders ANSI text via `renderAgentEvent()`, manages state transitions, starts/stops the animated spinner, updates bookmarks and taglines.
-4. **Input:** `xterm.onData` handles keyboard input based on the current agent input state. Characters are buffered locally and echoed to the terminal. Enter sends the buffer via `sendAgentMessage()`.
-5. **Paste:** Custom paste handler (`doPaste()`, `Terminal.tsx:350-392`) reads from clipboard (Tauri plugin with navigator fallback), sanitizes text, or falls back to saving clipboard images as temp PNGs.
-6. **File drop:** Listens for Tauri drag-drop events (`Terminal.tsx:716-730`). Dropped paths are inserted into the agent input buffer.
-7. **Unmount:** Cancels animation frame, stops spinner, kills agent, disposes WebGL addon, removes xterm from DOM before disposal.
-
-**Animated spinner** (`Terminal.tsx:533-561`): Braille character frames (`SPINNER_FRAMES`) at 80ms interval, shown during "Thinking..." state. Cleared with cursor-up to eliminate blank gap before response.
-
-**Bookmarks:** User prompts and response starts are automatically bookmarked. Bookmarks are cleared when the buffer shrinks significantly (e.g., `/clear` or `/compact`), with a guard against false positives from resize reflow.
-
-**Custom key handler** (`Terminal.tsx:394-422`): Intercepts Ctrl+T, Ctrl+F4, Ctrl+Tab to pass to global handlers. Handles Ctrl+C (copy selection or propagate for interrupt) and Ctrl+V (custom paste logic).
-
-**Theme/font updates:** Separate `useEffect` hooks update xterm options when `themeIdx`, `fontFamily`, or `fontSize` change, then re-fit the terminal.
-
-Wrapped in `React.memo`. All callbacks stored in refs to avoid stale closures.
-
-#### ANSI Renderer (`ansiRenderer.ts`)
-
-**Source:** `app/src/ansiRenderer.ts`
-
-<!-- Source: ansiRenderer.ts:1-130 -->
-
-Converts `AgentEvent` objects into ANSI escape sequences for xterm.js rendering. Theme-aware using the current `ThemeColors`.
-
-| Event Type | Rendering |
-|-----------|-----------|
-| `assistant` (streaming) | Raw text with `\n` -> `\r\n` conversion |
-| `assistant` (complete) | Word-wrapped text |
-| `toolUse` | Unicode box drawing with tool name header, truncated input |
-| `toolResult` | Checkmark/cross icon + tool name + output preview |
-| `permission` | Yellow warning with tool name and Y/n prompt |
-| `inputRequired` | Accent-colored prompt character (`❯`) |
-| `thinking` | Empty string (spinner handled by Terminal.tsx) |
-| `status` | Dim status line with model name |
-| `progress` | Dim progress message |
-| `result` | Dim stats line: cost, tokens, cache info, turns, duration |
-| `error` | Red error with rate limit icon or warning icon |
-| `exit` | Dim "Session ended" message |
 
 #### NewTabPage (`NewTabPage.tsx`)
 
@@ -761,7 +747,7 @@ The project picker screen. Reads shared state from `ProjectsContext`. Manages:
 - `launching` -- prevents double-launch
 - `activeModal` -- which modal dialog is open (or null)
 
-**Keyboard handling** (`NewTabPage.tsx`): Only active when `isActive` is true and no modal is open. Uses refs for all frequently-changing values to keep the handler stable.
+**Keyboard handling:** Only active when `isActive` is true and no modal is open. Uses refs for all frequently-changing values to keep the handler stable.
 
 **Modals:**
 
@@ -790,9 +776,33 @@ Wrapped in `React.memo`.
 
 **Source:** `app/src/components/SessionConfig.tsx`
 
-Displays current session settings (model, effort, permissions) with clickable segmented controls. Shown below the project list in the NewTabPage.
+Displays current session settings (model, effort, permission mode) with clickable segmented controls. Shown below the project list in the NewTabPage.
 
 Wrapped in `React.memo`.
+
+#### SessionPanel (`SessionPanel.tsx`)
+
+**Source:** `app/src/components/SessionPanel.tsx`
+
+Slide-in sidebar panel showing past agent sessions for the active project. Supports resume (continue existing session) and fork (branch from session). Toggled via Ctrl+Shift+S.
+
+#### SessionBrowser (`SessionBrowser.tsx`)
+
+**Source:** `app/src/components/SessionBrowser.tsx`
+
+Full-page session browser for listing and inspecting past Agent SDK sessions across all projects.
+
+#### TranscriptView (`TranscriptView.tsx`)
+
+**Source:** `app/src/components/TranscriptView.tsx`
+
+Read-only view for inspecting messages from a past session (opened from SessionBrowser).
+
+#### OnboardingOverlay (`OnboardingOverlay.tsx`)
+
+**Source:** `app/src/components/OnboardingOverlay.tsx`
+
+First-run overlay with step-by-step introduction. Shown once, then dismissed via `onboarding_seen` setting.
 
 #### InfoStrip (`InfoStrip.tsx`)
 
@@ -812,47 +822,129 @@ Closes on Escape (captured in capture phase) and backdrop click. Uses `role="dia
 
 **Source:** `app/src/components/ErrorBoundary.tsx`
 
-Class component wrapping `Terminal` (and other tab content). On error, displays the error message and a "Close Tab" button.
+Class component wrapping tab content. On error, displays the error message and a "Close Tab" button.
 
-#### Minimap (`Minimap.tsx`)
+### Chat Subcomponents (`components/chat/`)
 
-**Source:** `app/src/components/Minimap.tsx`
+| Component | Purpose |
+|-----------|---------|
+| `ChatInput` | Multiline input with slash command menu (`CommandMenu`), @agent mentions (`MentionMenu`), file attachments (`AttachmentChip`), command history |
+| `MessageBubble` | Assistant text rendered via react-markdown with react-syntax-highlighter |
+| `ToolCard` | Individual tool use/result display with collapsible input/output |
+| `ToolGroup` | Groups consecutive tool calls into a collapsible section |
+| `PermissionCard` | Interactive permission prompt with Allow/Deny and session-allow options |
+| `AskQuestionCard` | Structured question UI for AskUserQuestion tool calls |
+| `ThinkingBlock` | Collapsible extended thinking display |
+| `ThinkingPanel` | Panel view of thinking content in sidebar |
+| `ResultBar` | Turn statistics bar (cost, tokens, cache, duration) |
+| `ErrorCard` | Error display card |
+| `RightSidebar` | Sidebar with minimap, bookmarks, todos, agent tasks panels |
+| `MinimapPanel` | Canvas-based minimap of conversation with incremental rendering |
+| `BookmarkPanel` | Bookmark navigation list |
+| `TodoPanel` | Agent todo list display |
+| `AgentTreePanel` | Subagent task tree display |
+| `DiffView` | Diff visualization for file changes |
+| `CommandMenu` | Slash command autocomplete dropdown |
+| `MentionMenu` | @agent mention autocomplete dropdown |
+| `AttachmentChip` | File/image attachment display chip |
 
-2px x 3px character rendering on canvas. Features: bookmark indicators, DPI-aware canvas, click-to-scroll with bookmark snapping, drag scrolling. Performance: cached theme colors via `MutationObserver`, separate viewport-only updates from full redraws, RAF-throttled rendering.
+### Terminal Subcomponents (`components/terminal/`)
 
-#### BookmarkList (`BookmarkList.tsx`)
-
-**Source:** `app/src/components/BookmarkList.tsx`
-
-Displays a clickable list of bookmarks (user prompts and response starts) for quick navigation within the terminal buffer.
+| Component | Purpose |
+|-----------|---------|
+| `TermToolLine` | Compact tool use/result line |
+| `TermToolGroup` | Groups consecutive tools in terminal style |
+| `TermPermPrompt` | Terminal-style permission Y/n prompt |
+| `TermThinkingLine` | Compact thinking indicator |
+| `TermErrorLine` | Terminal-style error line |
+| `TermResultLine` | Compact result statistics |
 
 ### Hooks
+
+#### useSessionController (`useSessionController.ts`)
+
+**Source:** `app/src/hooks/useSessionController.ts`
+
+Central hook (~847 lines) managing all session lifecycle -- streaming, permissions, thinking, task tracking. Instantiated by `AgentView` and shared with whichever view is active.
+
+**Props (`SessionControllerProps`):**
+
+| Prop | Type | Description |
+|------|------|-------------|
+| `tabId` | `string` | Tab identifier |
+| `projectPath` | `string` | Absolute path to project |
+| `modelIdx` | `number` | Model index |
+| `effortIdx` | `number` | Effort level index |
+| `permModeIdx` | `number` | Permission mode index |
+| `systemPrompt` | `string` | Concatenated system prompt text |
+| `isActive` | `boolean` | Whether this tab is visible |
+| `onSessionCreated` | `(tabId, sessionId) => void` | Session ID callback |
+| `onNewOutput` | `(tabId) => void` | Background output callback |
+| `onExit` | `(tabId, code) => void` | Process exit callback |
+| `onError` | `(tabId, msg) => void` | Error callback |
+| `onTaglineChange` | `(tabId, tagline) => void` | Tab tagline update |
+| `plugins` | `string[]` | Marketplace plugin list |
+| `resumeSessionId` | `string?` | Session ID to resume (consumed on mount) |
+| `forkSessionId` | `string?` | Session ID to fork (consumed on mount) |
+
+**Return value (`SessionController`):**
+
+| Property | Type | Description |
+|----------|------|-------------|
+| `messages` | `ChatMessage[]` | All accumulated messages |
+| `displayItems` | `DisplayItem[]` | Messages with tool grouping applied |
+| `deferredMessages` | `ChatMessage[]` | Deferred (non-urgent) message snapshot |
+| `inputState` | `"idle" \| "awaiting_input" \| "processing"` | Current agent input state |
+| `stats` | `SessionStats` | Accumulated token/cost/duration stats |
+| `agentTasks` | `AgentTask[]` | Active subagent tasks |
+| `sdkCommands` | `SlashCommand[]` | Available slash commands |
+| `sdkAgents` | `AgentInfoSDK[]` | Available @agents |
+| `hasUnresolvedPermission` | `boolean` | Whether there's a pending permission prompt |
+| `streamingTextRef` | `RefObject<string>` | Current streaming text (ref for perf) |
+| `streamingTick` | `number` | Tick counter for streaming re-renders |
+| `thinkingTextRef` | `RefObject<string>` | Current thinking text (ref for perf) |
+| `thinkingTick` | `number` | Tick counter for thinking re-renders |
+| `handleSubmit` | `(text, attachments) => Promise<void>` | Submit user message with attachments |
+| `handlePermissionRespond` | `(msgId, allow, suggestions?) => void` | Respond to permission prompt |
+| `handleAskUserRespond` | `(msgId, answers) => void` | Respond to ask question |
+| `handleCommand` | `(command) => void` | Execute slash command |
+| `handleInterrupt` | `() => void` | Interrupt current agent turn |
+| `handleBackground` | `() => void` | Toggle background mode |
+| `droppedFiles` / `setDroppedFiles` | `string[]` | File drag-and-drop state |
+| `handleAttachClick` | `() => Promise<void>` | Open file picker for attachments |
+
+**Session stats** are tracked via a `useReducer` with `result` and `rateLimit` actions for incremental accumulation.
+
+**Tool grouping:** `DisplayItem` type unions `ChatMessage` with `ToolGroupItem` to collapse consecutive tool calls into groups.
+
+**Deferred kills:** Uses a module-level `_pendingKills` map to coordinate session cleanup across mount/unmount cycles (React StrictMode double-mount).
 
 #### useTabManager (`useTabManager.ts`)
 
 **Source:** `app/src/hooks/useTabManager.ts`
 
-<!-- Source: useTabManager.ts:1-271 -->
-
 Manages tab lifecycle with `useState`. Initializes with one `new-tab` tab.
 
-**Tab type** (`types.ts:8-23`):
+**Tab type** (`types.ts`):
 
 ```typescript
 interface Tab {
   id: string;                    // crypto.randomUUID()
-  type: "new-tab" | "agent" | "about" | "usage" | "system-prompt" | "sessions";
+  type: "new-tab" | "agent" | "about" | "usage" | "system-prompt" | "sessions" | "transcript";
   projectPath?: string;
   projectName?: string;
   modelIdx?: number;
   effortIdx?: number;
-  skipPerms?: boolean;
+  permModeIdx?: number;
   autocompact?: boolean;
   temporary?: boolean;           // Quick-launched, not in project dirs
   agentSessionId?: string;
   hasNewOutput?: boolean;
   exitCode?: number | null;
   tagline?: string;              // Shows agent activity in tab label
+  resumeSessionId?: string;      // Consumed on mount for session resume
+  forkSessionId?: string;        // Consumed on mount for session fork
+  transcriptSessionId?: string;  // Session ID for transcript viewer tabs
 }
 ```
 
@@ -874,19 +966,19 @@ interface Tab {
 | `toggleSystemPromptTab` | `() => void` | Same pattern |
 | `toggleSessionsTab` | `() => void` | Same pattern |
 
-**Session persistence** (`useTabManager.ts:77-113`):
+**Session persistence:**
 
 - On mount, calls `load_session` IPC. If valid saved tabs exist, restores them as `agent` tabs and appends a fresh new-tab.
-- On state change, debounces (500ms) saving agent tab state via `save_session` IPC. Only persists `projectPath`, `projectName`, `modelIdx`, `effortIdx`, `skipPerms`, `temporary`.
+- On state change, debounces (500ms) saving agent tab state via `save_session` IPC. Only persists `projectPath`, `projectName`, `modelIdx`, `effortIdx`, `permModeIdx`, `temporary`.
 - Uses `useMemo` + `saveableKey` string to derive saveable state and avoid unnecessary saves.
 
-**Close behavior** (`useTabManager.ts:161-190`): When closing the last tab, opens a new `new-tab` page instead of destroying the window (avoids silent shutdown issues after standby).
+**Close behavior:** When closing the last tab, opens a new `new-tab` page instead of destroying the window (avoids silent shutdown issues after standby).
 
 #### useProjects (`useProjects.ts`)
 
 **Source:** `app/src/hooks/useProjects.ts`
 
-Loads settings, usage data, and projects on mount. Provides filtering, sorting, and settings management.
+Loads settings, usage data, themes, and projects on mount. Provides filtering, sorting, and settings management.
 
 **Sort logic:**
 
@@ -896,29 +988,30 @@ Loads settings, usage data, and projects on mount. Provides filtering, sorting, 
 | `last used` | Descending by `last_used` timestamp |
 | `most used` | Weighted score: `count * 0.5^((now - last_used) / 30d)` -- exponential decay with 30-day half-life |
 
-**Theme application:** Calls `applyTheme(themeIdx)` whenever `theme_idx` changes.
+**Theme application:** Calls `applyTheme(themes, themeIdx)` whenever `theme_idx` or the themes array changes.
 
 #### useAgentSession (`useAgentSession.ts`)
 
 **Source:** `app/src/hooks/useAgentSession.ts`
 
-<!-- Source: useAgentSession.ts:1-102 -->
-
 Not a React hook -- exports standalone async functions that wrap Tauri IPC calls for agent operations.
 
 | Function | Signature | IPC Command |
 |----------|-----------|-------------|
-| `spawnAgent` | `(tabId, projectPath, model, effort, systemPrompt, skipPerms, onEvent) => Promise<Channel>` | `spawn_agent` |
+| `spawnAgent` | `(tabId, projectPath, model, effort, systemPrompt, permMode, plugins, onEvent) => Promise<Channel>` | `spawn_agent` |
 | `sendAgentMessage` | `(tabId, text) => Promise<void>` | `agent_send` |
-| `resumeAgent` | `(tabId, sessionId, projectPath, model, effort, onEvent) => Promise<Channel>` | `agent_resume` |
-| `forkAgent` | `(tabId, sessionId, projectPath, model, effort, onEvent) => Promise<Channel>` | `agent_fork` |
+| `resumeAgent` | `(tabId, sessionId, projectPath, model, effort, permMode, plugins, onEvent) => Promise<Channel>` | `agent_resume` |
+| `forkAgent` | `(tabId, sessionId, projectPath, model, effort, permMode, plugins, onEvent) => Promise<Channel>` | `agent_fork` |
+| `interruptAgent` | `(tabId) => Promise<void>` | `agent_interrupt` |
 | `killAgent` | `(tabId) => Promise<void>` | `agent_kill` |
-| `respondPermission` | `(tabId, allow, updatedPermissions?) => Promise<void>` | `agent_permission` |
-| `setAgentModel` | `(tabId, model) => Promise<void>` | `agent_set_model` |
+| `respondPermission` | `(tabId, allow, toolUseId, updatedPermissions?) => Promise<void>` | `agent_permission` |
+| `respondAskUser` | `(tabId, answers) => Promise<void>` | `agent_ask_response` |
+| `setAgentPermMode` | `(tabId, permMode) => Promise<void>` | `agent_set_perm_mode` |
 | `listAgentSessions` | `(cwd?) => Promise<SessionInfo[]>` | `list_agent_sessions` |
 | `getAgentMessages` | `(sessionId, dir?) => Promise<unknown>` | `get_agent_messages` |
 | `saveClipboardImage` | `() => Promise<string>` | `save_clipboard_image` |
-| `requestAutocomplete` | `(tabId, input, context, seq) => Promise<void>` | `agent_autocomplete` |
+| `refreshCommands` | `(tabId) => Promise<{commands, agents}>` | `refresh_commands` |
+| `runClaudeCommand` | `(subcommand) => Promise<CliResult>` | `run_claude_command` |
 
 `spawnAgent` creates a Tauri `Channel<AgentEvent>` and passes it to the backend. Events flow from sidecar -> Rust -> Channel -> frontend callback.
 
@@ -928,30 +1021,27 @@ Not a React hook -- exports standalone async functions that wrap Tauri IPC calls
 
 **Source:** `app/src/contexts/ProjectsContext.tsx`
 
-Wraps `useProjects()` in a React Context so all `NewTabPage` instances share the same project data, settings, and filter state. The context value is memoized to prevent unnecessary re-renders.
+Wraps `useProjects()` in a React Context so all `NewTabPage` instances share the same project data, settings, themes, and filter state. The context value is memoized to prevent unnecessary re-renders.
 
-### Theme System
+### Theme System (Frontend)
 
-**Source:** `app/src/types.ts:98-191`, `app/src/themes.ts`
+**Source:** `app/src/themes.ts`, `app/src/types.ts`
 
-10 built-in dark themes:
+Themes are loaded at runtime from the Rust backend via `load_themes` IPC command. The `Theme` interface:
 
-| Index | Name |
-|-------|------|
-| 0 | Catppuccin Mocha (default) |
-| 1 | Dracula |
-| 2 | One Dark |
-| 3 | Nord |
-| 4 | Solarized Dark |
-| 5 | Gruvbox Dark |
-| 6 | Tokyo Night |
-| 7 | Monokai |
-| 8 | Anvil Forge [retro] |
-| 9 | Guybrush [retro] |
+```typescript
+interface Theme {
+  name: string;
+  colors: ThemeColors;
+  retro?: boolean;
+  termFont?: string;
+  termFontSize?: number;
+  uiFont?: string;
+  uiFontSize?: number;
+}
+```
 
-Themes 8-9 have a `retro: true` flag which enables retro mode CSS.
-
-Each theme defines 14 color values:
+Each theme defines 14+ color values:
 
 | Color | CSS Variable | Usage |
 |-------|-------------|-------|
@@ -967,20 +1057,32 @@ Each theme defines 14 color values:
 | `red` | `--red` | Errors, destructive |
 | `green` | `--green` | Success |
 | `yellow` | `--yellow` | Warnings |
-| `cursor` | -- | xterm cursor color |
-| `selection` | -- | xterm selection background |
+| `cursor` | -- | Terminal cursor color |
+| `selection` | -- | Terminal selection background |
+| `userMsgBg` | `--user-msg-bg` | User message background (optional) |
+| `userMsgBorder` | `--user-msg-border` | User message border (optional) |
 
-**`applyTheme(themeIdx)`** (`themes.ts`): Sets CSS custom properties on `document.documentElement`.
+**`applyTheme(themes, themeIdx)`** (`themes.ts`): Sets CSS custom properties on `document.documentElement`. Derives typographic scale from `termFontSize`. Detects light vs dark themes via background luminance, sets `colorScheme` and `.light-theme` class. Sets `.retro` class for retro themes and updates DWM window corner preference.
 
-**`getXtermTheme(themeIdx)`** (`themes.ts`): Returns `{ background, foreground, cursor, selectionBackground }` for xterm.js options.
+### Permission Modes
+
+**Source:** `app/src/types.ts`
+
+The `PERM_MODES` array defines three permission levels:
+
+| Index | Display | SDK Value | Behavior |
+|-------|---------|-----------|----------|
+| 0 | plan | `plan` | Agent can only read/analyze, cannot execute tools |
+| 1 | accept edits | `acceptEdits` | Auto-accepts file edits, prompts for other tools |
+| 2 | skip all | `bypassPermissions` | Skips all permission prompts |
+
+Cycled via Tab on the project picker. Can be changed mid-session via `agent_set_perm_mode` IPC.
 
 ---
 
 ## 7. IPC Protocol
 
-<!-- Source: main.rs:113-139, commands.rs:1-487 -->
-
-Complete list of Tauri IPC commands registered in `main.rs:113-139` with their signatures from `commands.rs`.
+Complete list of Tauri IPC commands registered in `main.rs` with their signatures from `commands.rs`.
 
 ### Agent Management
 
@@ -995,14 +1097,13 @@ Creates a new agent session via the sidecar.
 | `model` | `String` | Model ID (e.g. `claude-sonnet-4-6`) or empty for default |
 | `effort` | `String` | Effort level (`high`, `medium`, `low`) |
 | `systemPrompt` | `String` | System prompt text (max 100 KB) |
-| `skipPerms` | `bool` | Skip tool permission prompts |
+| `permMode` | `String` | Permission mode (`plan`, `acceptEdits`, `bypassPermissions`) |
+| `plugins` | `Vec<String>` | Marketplace plugin names |
 | `onEvent` | `Channel<AgentEvent>` | Tauri Channel for agent events |
 
 **Returns:** `Result<(), String>`
 
 **Validation:** Rejects UNC paths, non-directory paths, oversized system prompts, and unavailable sidecar.
-
-**Source:** `commands.rs:297-332`
 
 #### `agent_send` (synchronous)
 
@@ -1015,8 +1116,6 @@ Sends a user message to an active agent session.
 
 **Returns:** `Result<(), String>`
 
-**Source:** `commands.rs:334-345`
-
 #### `agent_resume`
 
 Resumes a previous agent session.
@@ -1028,11 +1127,11 @@ Resumes a previous agent session.
 | `projectPath` | `String` | Project directory path |
 | `model` | `String` | Model ID |
 | `effort` | `String` | Effort level |
+| `permMode` | `String` | Permission mode |
+| `plugins` | `Vec<String>` | Marketplace plugin names |
 | `onEvent` | `Channel<AgentEvent>` | Tauri Channel for agent events |
 
 **Returns:** `Result<(), String>`
-
-**Source:** `commands.rs:347-376`
 
 #### `agent_fork`
 
@@ -1045,11 +1144,21 @@ Forks (branches from) a previous agent session.
 | `projectPath` | `String` | Project directory path |
 | `model` | `String` | Model ID |
 | `effort` | `String` | Effort level |
+| `permMode` | `String` | Permission mode |
+| `plugins` | `Vec<String>` | Marketplace plugin names |
 | `onEvent` | `Channel<AgentEvent>` | Tauri Channel for agent events |
 
 **Returns:** `Result<(), String>`
 
-**Source:** `commands.rs:378-407`
+#### `agent_interrupt` (synchronous)
+
+Interrupts the current agent turn (graceful -- finishes current tool call).
+
+| Parameter | Type | Description |
+|-----------|------|-------------|
+| `tabId` | `String` | Tab identifier |
+
+**Returns:** `Result<(), String>`
 
 #### `agent_kill` (synchronous)
 
@@ -1061,8 +1170,6 @@ Kills an active agent session.
 
 **Returns:** `Result<(), String>`
 
-**Source:** `commands.rs:409-420`
-
 #### `agent_permission` (synchronous)
 
 Responds to a tool permission request.
@@ -1071,11 +1178,21 @@ Responds to a tool permission request.
 |-----------|------|-------------|
 | `tabId` | `String` | Tab identifier |
 | `allow` | `bool` | Allow or deny the tool |
-| `updatedPermissions` | `Option<serde_json::Value>` | Optional session-allow permission updates forwarded to sidecar |
+| `toolUseId` | `String` | Tool use ID from the permission event |
+| `updatedPermissions` | `Option<serde_json::Value>` | Optional session-allow permission updates |
 
 **Returns:** `Result<(), String>`
 
-**Source:** `commands.rs:440-454`
+#### `agent_ask_response` (synchronous)
+
+Responds to an AskUserQuestion tool call.
+
+| Parameter | Type | Description |
+|-----------|------|-------------|
+| `tabId` | `String` | Tab identifier |
+| `answers` | `serde_json::Value` | Answer map (question -> selected options) |
+
+**Returns:** `Result<(), String>`
 
 #### `agent_set_model` (synchronous)
 
@@ -1088,7 +1205,16 @@ Changes the model for an active agent session mid-conversation.
 
 **Returns:** `Result<(), String>`
 
-**Source:** `commands.rs:435-446`
+#### `agent_set_perm_mode` (synchronous)
+
+Changes the permission mode for an active agent session mid-conversation.
+
+| Parameter | Type | Description |
+|-----------|------|-------------|
+| `tabId` | `String` | Tab identifier |
+| `permMode` | `String` | New permission mode (`plan`, `acceptEdits`, `bypassPermissions`) |
+
+**Returns:** `Result<(), String>`
 
 #### `list_agent_sessions`
 
@@ -1099,8 +1225,6 @@ Lists past SDK sessions, optionally filtered by working directory.
 | `cwd` | `Option<String>` | Optional directory filter |
 
 **Returns:** `Result<serde_json::Value, String>` -- array of session info objects.
-
-**Source:** `commands.rs:448-465`
 
 #### `get_agent_messages`
 
@@ -1113,7 +1237,15 @@ Gets messages from a past SDK session.
 
 **Returns:** `Result<serde_json::Value, String>`
 
-**Source:** `commands.rs:467-486`
+#### `refresh_commands`
+
+Refreshes available slash commands and agents from the SDK.
+
+| Parameter | Type | Description |
+|-----------|------|-------------|
+| `tabId` | `String` | Tab identifier |
+
+**Returns:** `Result<{commands, agents}, String>`
 
 ### Autocomplete
 
@@ -1141,6 +1273,14 @@ Local file path autocomplete (no sidecar needed).
 
 **Returns:** `Result<Vec<String>, String>` -- list of matching file paths.
 
+### Theme Loading
+
+#### `load_themes`
+
+Loads all theme JSON files from `data/themes/` directory.
+
+**Returns:** `Result<Vec<Theme>, String>` -- sorted by `order` field.
+
 ### Project Management
 
 #### `scan_projects`
@@ -1157,8 +1297,6 @@ Scans configured directories for projects.
 
 Runs on a blocking thread. Scans in parallel (8 threads per chunk).
 
-**Source:** `commands.rs:28-39`
-
 #### `create_project`
 
 Creates a new project directory.
@@ -1171,8 +1309,6 @@ Creates a new project directory.
 
 **Returns:** `Result<String, String>` -- full path to created directory.
 
-**Source:** `commands.rs:84-99`
-
 #### `list_directory`
 
 Lists subdirectories of a path, or returns Windows drive roots if no path provided.
@@ -1183,8 +1319,6 @@ Lists subdirectories of a path, or returns Windows drive roots if no path provid
 
 **Returns:** `Result<Vec<DirEntry>, String>` (max 500 entries)
 
-**Source:** `commands.rs:203-265`
-
 ### Settings and Usage
 
 #### `load_settings`
@@ -1192,8 +1326,6 @@ Lists subdirectories of a path, or returns Windows drive roots if no path provid
 Loads settings from disk. Falls back to backup file, then defaults.
 
 **Returns:** `Result<Settings, String>`
-
-**Source:** `commands.rs:41-47`
 
 #### `save_settings`
 
@@ -1205,13 +1337,9 @@ Persists settings to disk with atomic write and backup. Also updates the Project
 
 **Returns:** `Result<(), String>`
 
-**Source:** `commands.rs:49-65`
-
 #### `load_usage` / `record_usage`
 
 Load and record project usage data. `record_usage` is mutex-protected.
-
-**Source:** `commands.rs:67-82`
 
 #### `get_token_usage`
 
@@ -1219,23 +1347,17 @@ Computes 7-day token usage statistics from Claude Code JSONL logs.
 
 **Returns:** `Result<TokenUsageStats, String>`
 
-**Source:** `commands.rs:178-184`
-
 ### Session Persistence
 
 #### `save_session` / `load_session`
 
 Save and load tab session state for restore on next launch. Data is an opaque JSON value with a 1 MB size cap.
 
-**Source:** `commands.rs:101-192`
-
 #### `save_clipboard_image`
 
 Saves clipboard image to temp PNG file. Returns path string. Cleans up files older than 1 hour. Max dimension 8192x8192.
 
 **Returns:** `Result<String, String>` -- path to temp PNG file.
-
-**Source:** `commands.rs:133-176`
 
 #### `set_window_corner_preference`
 
@@ -1245,8 +1367,6 @@ Sets DWM window corner preference (rounded or square for retro mode).
 |-----------|------|-------------|
 | `retro` | `bool` | Use square corners for retro themes |
 
-**Source:** `commands.rs:112-131`
-
 ### System Prompts
 
 #### `load_builtin_prompts`
@@ -1255,13 +1375,60 @@ Loads all `.md` prompt files from the prompts directory.
 
 **Returns:** `Result<Vec<BuiltinPrompt>, String>`
 
-**Source:** `commands.rs:267-272`
-
 #### `save_prompt` / `update_prompt` / `delete_prompt`
 
 CRUD operations for system prompt `.md` files.
 
-**Source:** `commands.rs:274-293`
+### File Operations
+
+#### `read_external_file`
+
+Reads a file from disk for attachment/display.
+
+| Parameter | Type | Description |
+|-----------|------|-------------|
+| `path` | `String` | Absolute file path |
+
+**Returns:** `Result<String, String>`
+
+#### `write_text_file`
+
+Writes text content to a file.
+
+| Parameter | Type | Description |
+|-----------|------|-------------|
+| `path` | `String` | Absolute file path |
+| `content` | `String` | Text content |
+
+**Returns:** `Result<(), String>`
+
+#### `run_claude_command`
+
+Runs a Claude CLI subcommand (e.g., `config get`, `mcp list`).
+
+| Parameter | Type | Description |
+|-----------|------|-------------|
+| `subcommand` | `String` | CLI subcommand |
+
+**Returns:** `Result<CliResult, String>` -- `{success, stdout, stderr, url}`
+
+### Marketplace
+
+#### `get_marketplace_plugins`
+
+Returns list of available marketplace plugin names.
+
+**Returns:** `Vec<String>`
+
+#### `set_marketplace_global`
+
+Enables or disables marketplace globally.
+
+| Parameter | Type | Description |
+|-----------|------|-------------|
+| `enabled` | `bool` | Enable marketplace |
+
+**Returns:** `Result<(), String>`
 
 ### Channel Events (Backend to Frontend)
 
@@ -1272,12 +1439,20 @@ The `spawn_agent` (and `agent_resume`, `agent_fork`) commands accept a Tauri `Ch
 | `assistant` | `text, streaming` | Assistant text (streaming delta or complete) |
 | `toolUse` | `tool, input` | Tool invocation with name and parameters |
 | `toolResult` | `tool, output, success` | Tool execution result |
-| `permission` | `tool, description, suggestions` | Permission request for a tool (suggestions enable interactive session-allow selector) |
+| `permission` | `tool, description, toolUseId, suggestions` | Permission request for a tool |
+| `ask` | `questions` | AskUserQuestion tool call |
 | `inputRequired` | -- | SDK ready for next user message |
 | `thinking` | `text` | Extended thinking content |
-| `status` | `status, model` | Session status change |
+| `status` | `status, model, sessionId` | Session status change |
 | `progress` | `message` | Tool progress update |
-| `result` | `cost, inputTokens, outputTokens, cacheReadTokens, cacheWriteTokens, turns, durationMs, isError, sessionId` | Turn result with usage statistics |
+| `result` | `cost, inputTokens, outputTokens, cacheReadTokens, cacheWriteTokens, turns, durationMs, isError, sessionId, contextWindow` | Turn result with usage statistics |
+| `todo` | `todos` | Todo list updates |
+| `rateLimit` | `utilization` | Rate limit utilization |
+| `commandsInit` | `commands, agents` | Available slash commands and agents |
+| `taskStarted` | `taskId, description, taskType` | Subagent task started |
+| `taskProgress` | `taskId, description, totalTokens, toolUses, durationMs, lastToolName, summary` | Subagent task progress |
+| `taskNotification` | `taskId, status, summary, totalTokens, toolUses, durationMs` | Subagent task completed/failed/stopped |
+| `interrupted` | -- | Agent turn was interrupted |
 | `autocomplete` | `suggestions, seq` | Autocomplete suggestions for agent input |
 | `error` | `code, message` | Error condition |
 | `exit` | `code` | Agent session ended |
@@ -1288,22 +1463,21 @@ The `spawn_agent` (and `agent_resume`, `agent_fork`) commands accept a Tauri `Ch
 
 ### Global (always active)
 
-<!-- Source: App.tsx:105-136 -->
-
 | Key | Action |
 |-----|--------|
 | Ctrl+T | New tab |
 | Ctrl+F4 | Close current tab |
 | Ctrl+Tab | Next tab |
 | Ctrl+Shift+Tab | Previous tab |
+| Ctrl+1-9 | Switch to tab by number |
+| F1 | Toggle keyboard shortcuts overlay |
 | F12 | Toggle About tab |
 | Ctrl+U | Toggle Usage/Stats tab |
 | Ctrl+Shift+P | Toggle System Prompts tab |
-| Ctrl+Shift+H | Toggle Sessions tab |
+| Ctrl+Shift+H | Toggle Sessions browser tab |
+| Ctrl+Shift+S | Toggle Session panel |
 
 ### Project Picker (NewTabPage active, no modal open)
-
-<!-- Source: NewTabPage.tsx:104-218 -->
 
 | Key | Action |
 |-----|--------|
@@ -1314,35 +1488,22 @@ The `spawn_agent` (and `agent_resume`, `agent_fork`) commands accept a Tauri `Ch
 | Escape | Clear filter (if set) or close tab |
 | Backspace | Delete last filter character |
 | Any printable character | Append to filter |
-| Tab | Cycle model |
+| Tab | Cycle permission mode (plan / accept edits / skip all) |
 | F2 | Cycle effort level |
 | F3 | Cycle sort order |
-| F4 | Toggle skip-permissions |
+| F4 | Cycle model |
 | F5 | Create new project (modal) |
 | F6 | Open selected project in Explorer |
 | F8 | Label selected project (modal) |
 | F10 | Quick launch (modal) |
 | Ctrl+, | Open settings |
 
-### Terminal (active agent tab)
-
-<!-- Source: Terminal.tsx:394-510 -->
+### Agent Tab (ChatView/TerminalView active)
 
 | Key | Action |
 |-----|--------|
-| Ctrl+C | Copy selection (if text selected) or interrupt agent (if processing) or clear input (if awaiting input) |
+| Ctrl+C | Copy selection (if text selected) or send interrupt |
 | Ctrl+V | Paste (text or image path) |
-| Y/y/Enter | Allow permission (when awaiting permission) |
-| N/n | Deny permission (when awaiting permission) |
-| Enter | Send buffered input (when awaiting input) |
-| Backspace | Delete last input character (when awaiting input) |
-| Tab | Cycle autocomplete suggestion (when ghost text visible) |
-| Right Arrow | Accept autocomplete suggestion (when ghost text visible) |
-| Escape | Dismiss autocomplete suggestion (when ghost text visible) |
-| Any key (after process exit) | Close tab |
-| File drag-and-drop | Insert paths into agent input |
-
-Ctrl+T, Ctrl+F4, and Ctrl+Tab are intercepted by the custom key handler and passed to global shortcuts.
 
 ---
 
@@ -1352,18 +1513,16 @@ Ctrl+T, Ctrl+F4, and Ctrl+Tab are intercepted by the custom key handler and pass
 
 **Storage:** `%LOCALAPPDATA%\anvil\anvil-settings.json`
 
-<!-- Source: projects.rs:26-66 -->
-
 ```json
 {
   "version": 1,
   "model_idx": 0,
   "effort_idx": 0,
   "sort_idx": 0,
-  "theme_idx": 0,
+  "theme_idx": 1,
   "font_family": "Cascadia Code",
   "font_size": 14,
-  "skip_perms": false,
+  "perm_mode_idx": 0,
   "autocompact": false,
   "active_prompt_ids": [],
   "security_gate": true,
@@ -1372,13 +1531,16 @@ Ctrl+T, Ctrl+F4, and Ctrl+Tab are intercepted by the custom key handler and pass
   "project_labels": {},
   "vertical_tabs": false,
   "sidebar_width": 200,
-  "autocomplete_enabled": true
+  "session_panel_open": false,
+  "autocomplete_enabled": true,
+  "view_style": "chat",
+  "hide_thinking": false
 }
 ```
 
 ### Constants
 
-#### Models (`types.ts:63-69`)
+#### Models (`types.ts`)
 
 | Index | Display Name | CLI Model ID |
 |-------|-------------|--------------|
@@ -1388,7 +1550,7 @@ Ctrl+T, Ctrl+F4, and Ctrl+Tab are intercepted by the custom key handler and pass
 | 3 | sonnet [1M] | claude-sonnet-4-6[1m] |
 | 4 | opus [1M] | claude-opus-4-6[1m] |
 
-#### Effort Levels (`types.ts:71`)
+#### Effort Levels (`types.ts`)
 
 | Index | Value |
 |-------|-------|
@@ -1396,7 +1558,7 @@ Ctrl+T, Ctrl+F4, and Ctrl+Tab are intercepted by the custom key handler and pass
 | 1 | medium |
 | 2 | low |
 
-#### Sort Orders (`types.ts:72`)
+#### Sort Orders (`types.ts`)
 
 | Index | Value |
 |-------|-------|
@@ -1404,22 +1566,17 @@ Ctrl+T, Ctrl+F4, and Ctrl+Tab are intercepted by the custom key handler and pass
 | 1 | last used |
 | 2 | most used |
 
-#### Themes (`types.ts:98-191`)
+#### Permission Modes (`types.ts`)
 
-| Index | Name |
-|-------|------|
-| 0 | Catppuccin Mocha |
-| 1 | Dracula |
-| 2 | One Dark |
-| 3 | Nord |
-| 4 | Solarized Dark |
-| 5 | Gruvbox Dark |
-| 6 | Tokyo Night |
-| 7 | Monokai |
-| 8 | Anvil Forge [retro] |
-| 9 | Guybrush [retro] |
+| Index | Display | SDK Value |
+|-------|---------|-----------|
+| 0 | plan | `plan` |
+| 1 | accept edits | `acceptEdits` |
+| 2 | skip all | `bypassPermissions` |
 
-Themes 8-9 have a `retro: true` flag which enables retro mode CSS.
+#### Themes
+
+Themes are loaded dynamically from JSON files in `data/themes/`. See [Theme System](#theme-system) above.
 
 ### CSS Design Tokens
 
@@ -1428,12 +1585,12 @@ Themes 8-9 have a `retro: true` flag which enables retro mode CSS.
 | Category | Tokens |
 |----------|--------|
 | Colors | `--bg`, `--surface`, `--mantle`, `--crust`, `--text`, `--text-dim`, `--overlay0`, `--overlay1`, `--accent`, `--red`, `--green`, `--yellow` |
-| Layout | `--tab-height` (42px), `--info-strip-height`, `--tab-max-width` (200px), `--sidebar-width` |
-| Spacing | `--space-1` (4px), `--space-2` (8px), `--space-3` (12px), `--space-4` (16px), `--space-6` (24px), `--space-8` (32px), `--space-12` (48px) |
-| Typography | `--text-xs` (10px), `--text-sm` (11px), `--text-base` (13px), `--text-md` (14px), `--text-lg` (16px), `--text-xl` (18px) |
+| Layout | `--tab-height`, `--info-strip-height`, `--title-bar-height`, `--sidebar-width`, `--sidebar-min-width`, `--sidebar-max-width`, `--session-panel-width`, `--sidebar-handle-width` |
+| Spacing | `--space-0` (0) through `--space-12` (48px) |
+| Typography | `--text-xs` (10px) through `--text-xl` (18px) |
 | Radii | `--radius-sm` (4px), `--radius-md` (6px) |
 | Overlays | `--hover-overlay`, `--hover-overlay-subtle`, `--backdrop`, `--shadow-modal` |
-| Font | `--font-mono` |
+| Font | `--font-mono`, `--chat-font-family`, `--chat-font-size` |
 | Z-index | `--z-resize` (100), `--z-modal` (1000) |
 
 ### Environment Variables
@@ -1447,18 +1604,17 @@ Themes 8-9 have a `retro: true` flag which enables retro mode CSS.
 
 ## 10. Architecture Notes
 
-<!-- Source: sidecar.rs, Terminal.tsx, App.tsx -->
-
+- **Dual-view architecture:** `AgentView` owns the session controller (`useSessionController`) and passes it to either `ChatView` (rich markdown) or `TerminalView` (compact monospace). Switching views does not destroy the session.
 - **Single sidecar process:** All agent sessions share one Node.js sidecar, multiplexed by tab ID. This avoids the overhead of spawning a new process per session and allows centralized lifecycle management.
-- **JSON-lines protocol:** Commands flow as JSON-lines over stdin; events flow as JSON-lines over stdout. Simple, debuggable, and no binary serialization complexity.
-- **Agent input state machine:** The Terminal component manages a four-state machine (idle / awaiting_input / processing / awaiting_permission) that controls which user input is accepted and how it's routed.
-- **Streaming deduplication:** The sidecar tracks `hasStreamedText` to avoid re-emitting complete assistant message text that was already sent as streaming deltas.
-- **Permission routing:** When `skipPerms` is false, the sidecar's `canUseTool` callback emits a permission event (with optional `permissionSuggestions`) and blocks on a Promise. The frontend renders an interactive permission selector with session-allow options derived from suggestions, and the response (with optional `updatedPermissions`) resolves the Promise in the sidecar.
+- **JSON-lines protocol:** Commands flow as JSON-lines over stdin; events flow as JSON-lines over stdout. The `SidecarEvent` is a tagged enum (`#[serde(tag = "evt")]`) for compile-time field safety. Simple, debuggable, and no binary serialization complexity.
+- **Three-state input machine:** The session controller manages a three-state machine (idle / awaiting_input / processing) that controls which user input is accepted and how it's routed. Permissions are handled as inline cards in the message stream, not as a separate state.
+- **Streaming via refs:** Streaming assistant text and thinking content are stored in refs (not state) with tick counters for efficient re-renders. This avoids creating new React state on every streaming chunk.
+- **Permission routing:** The `permMode` setting controls SDK permission behavior. When not bypassing, the sidecar's `canUseTool` callback emits a permission event (with optional `permissionSuggestions`) and blocks on a Promise. The frontend renders an interactive `PermissionCard` with session-allow options, and the response (with `toolUseId` and optional `updatedPermissions`) resolves the Promise in the sidecar.
 - **Process tree cleanup:** The sidecar child process is assigned to a Win32 Job Object with `JOB_OBJECT_LIMIT_KILL_ON_JOB_CLOSE`. When Anvil exits, terminating the job object kills all descendant processes (Agent SDK subprocesses), preventing orphaned `node.exe` processes.
-- **WebGL resilience:** `Terminal.tsx` uses multi-layer context loss detection (addon callback, canvas DOM event, periodic health check) with automatic fallback to canvas renderer. Recovery is attempted on visibility change (wake from standby).
+- **Tool grouping:** Consecutive tool use/result messages are grouped into collapsible `ToolGroup` / `TermToolGroup` components to reduce visual noise.
 - **Theme crossfade:** Structural CSS containers transition `background-color` and `color` on theme switch (150ms ease-out).
-- **Bookmark management:** Automatically bookmarks user prompts and response starts. Clears all bookmarks on buffer shrinkage (agent `/clear` or `/compact`), with a guard against false positives from resize-induced line reflow.
-- **Tab taglines:** The Terminal updates `tagline` on each agent state change (thinking, tool use, permission request), giving users a quick summary of what the agent is doing without switching tabs.
+- **Tab taglines:** The session controller updates `tagline` on each agent state change (thinking, tool use, permission request), giving users a quick summary of what the agent is doing without switching tabs.
+- **Virtual scrolling:** Both ChatView and TerminalView use `@tanstack/react-virtual` for performant rendering of long conversations.
 
 ---
 
@@ -1511,7 +1667,9 @@ Themes 8-9 have a `retro: true` flag which enables retro mode CSS.
 
 3. **Add Rust IPC wrapper** in `commands.rs` that calls `sidecar.send_command()`.
 
-4. **Add frontend wrapper** in `useAgentSession.ts`.
+4. **Add `SidecarEvent` variant** in `sidecar.rs` for the response event.
+
+5. **Add frontend wrapper** in `useAgentSession.ts`.
 
 ### Adding a New Component
 
@@ -1526,27 +1684,28 @@ Themes 8-9 have a `retro: true` flag which enables retro mode CSS.
 
 ### Adding a New Theme
 
-1. Add a new entry to the `THEMES` array in `app/src/types.ts`:
+1. Create a JSON file in `app/src-tauri/data/themes/my-theme.json`:
 
-   ```typescript
+   ```json
    {
-     name: "My Theme",
-     colors: {
-       bg: "#...", surface: "#...", mantle: "#...", crust: "#...",
-       text: "#...", textDim: "#...", overlay0: "#...", overlay1: "#...",
-       accent: "#...", red: "#...", green: "#...", yellow: "#...",
-       cursor: "#...", selection: "#...",
-     },
-   },
+     "name": "My Theme",
+     "order": 50,
+     "colors": {
+       "bg": "#...", "surface": "#...", "mantle": "#...", "crust": "#...",
+       "text": "#...", "textDim": "#...", "overlay0": "#...", "overlay1": "#...",
+       "accent": "#...", "red": "#...", "green": "#...", "yellow": "#...",
+       "cursor": "#...", "selection": "#..."
+     }
+   }
    ```
 
-2. The theme will automatically appear in the settings and be persisted via `theme_idx` in settings.
+2. The theme will automatically appear in settings after restart. Optional fields: `retro`, `termFont`, `termFontSize`, `uiFont`, `uiFontSize`, `userMsgBg`, `userMsgBorder`.
 
 ### Adding a New Model
 
-1. Add to `MODELS` in `app/src/types.ts:63-69` (TypeScript, object with `display` and `id`).
+1. Add to `MODELS` in `app/src/types.ts` (TypeScript, object with `display` and `id`).
 
-2. The Tab key cycling and StatusBar will automatically include it. The model ID is passed to the sidecar which forwards it to the Agent SDK.
+2. The F4 key cycling and SessionConfig will automatically include it. The model ID is passed to the sidecar which forwards it to the Agent SDK.
 
 ### Adding a New System Prompt
 
@@ -1565,7 +1724,7 @@ Themes 8-9 have a `retro: true` flag which enables retro mode CSS.
 
 ### Adding a New Modal
 
-1. Define the modal component (in `NewTabPage.tsx` or a separate file):
+1. Define the modal component (in `components/modals/` or inline):
 
    ```typescript
    function MyModal({ onClose }: { onClose: () => void }) {
@@ -1593,29 +1752,76 @@ app/
     App.css                     # Global styles and design tokens
     types.ts                    # TypeScript interfaces and constants
     themes.ts                   # Theme application functions
-    ansiRenderer.ts             # AgentEvent -> ANSI text rendering
+    utils/
+      sanitizeInput.ts          # Input sanitization
+      format.ts                 # Number/token formatting
+      exportSession.ts          # Session export to markdown
+      linkifyPaths.tsx          # Path linkification in terminal view
+      notify.ts                 # Attention notification utility
     components/
+      AgentView.tsx             # View switcher (ChatView/TerminalView)
+      ChatView.tsx + .css       # Rich markdown chat view
+      TerminalView.tsx + .css   # Compact monospace terminal view
+      TranscriptView.tsx + .css # Read-only past session viewer
       TabBar.tsx + .css         # Horizontal tab bar with window controls
       TabSidebar.tsx + .css     # Vertical tab sidebar
       TitleBar.tsx + .css       # Minimal title bar for vertical layout
-      Terminal.tsx + .css       # xterm.js terminal wrapper + agent UI
-      Minimap.tsx + .css        # Terminal minimap with bookmarks
-      BookmarkList.tsx + .css   # Bookmark navigation panel
       NewTabPage.tsx + .css     # Project picker + modals
       AboutPage.tsx + .css      # About page with ASCII logo
       UsagePage.tsx + .css      # Token usage statistics dashboard
       SystemPromptPage.tsx + .css # System prompt editor
-      SessionBrowser.tsx + .css # Past session browser
+      SessionBrowser.tsx        # Past session browser
+      SessionPanel.tsx + .css   # Slide-in session resume/fork panel
+      SessionViewProps.ts       # Shared view props interface
       ProjectList.tsx + .css    # Scrollable project list
-      SessionConfig.tsx + .css  # Session settings (model, effort, perms)
+      SessionConfig.tsx + .css  # Session settings (model, effort, perm mode)
       InfoStrip.tsx + .css      # Status strip with project count/hints
+      OnboardingOverlay.tsx + .css # First-run overlay
+      SegmentedControl.tsx + .css # Reusable segmented control
+      FolderTree.tsx + .css     # Directory browser tree
+      GsdPrimitives.tsx         # Generic styled primitives
       Modal.tsx + .css          # Reusable modal
       ErrorBoundary.tsx         # Error boundary for tab content
+      ShortcutsOverlay.tsx + .css # Keyboard shortcuts overlay
+      AsciiLogo.tsx             # ASCII art logo component
+      Icons.tsx                 # SVG icon components
+      chat/
+        ChatInput.tsx + .css    # Multiline input with menus
+        MessageBubble.tsx       # Markdown-rendered assistant message
+        ToolCard.tsx            # Tool use/result card
+        ToolGroup.tsx           # Grouped tool calls
+        PermissionCard.tsx      # Permission prompt card
+        AskQuestionCard.tsx     # Structured question UI
+        ThinkingBlock.tsx       # Collapsible thinking display
+        ThinkingPanel.tsx       # Sidebar thinking panel
+        ResultBar.tsx           # Turn statistics bar
+        ErrorCard.tsx           # Error display card
+        RightSidebar.tsx + .css # Sidebar with minimap/bookmarks/todos/tasks
+        MinimapPanel.tsx        # Canvas minimap
+        BookmarkPanel.tsx       # Bookmark navigation
+        TodoPanel.tsx           # Todo list display
+        AgentTreePanel.tsx      # Subagent task tree
+        DiffView.tsx + .css     # Diff visualization
+        CommandMenu.tsx         # Slash command dropdown
+        MentionMenu.tsx         # @agent mention dropdown
+        AttachmentChip.tsx      # File/image attachment chip
+      terminal/
+        TermToolLine.tsx        # Compact tool line
+        TermToolGroup.tsx       # Grouped tools (terminal style)
+        TermPermPrompt.tsx      # Terminal permission prompt
+        TermThinkingLine.tsx    # Compact thinking line
+        TermErrorLine.tsx       # Terminal error line
+        TermResultLine.tsx      # Compact result line
+      modals/
+        SettingsModal.tsx + .css # Unified settings modal
+        CreateProjectModal.tsx  # New project creation
+        LabelProjectModal.tsx   # Project label editor
+        QuickLaunchModal.tsx    # Quick launch directory picker
     hooks/
       useTabManager.ts          # Tab lifecycle + session persistence
-      useProjects.ts            # Settings, scanning, filtering
+      useProjects.ts            # Settings, themes, scanning, filtering
       useAgentSession.ts        # Agent SDK IPC wrappers
-      useAutocomplete.ts        # Input autocomplete hook
+      useSessionController.ts   # Session lifecycle, streaming, permissions
     contexts/
       ProjectsContext.tsx       # Shared project state
   src-tauri/
@@ -1624,6 +1830,7 @@ app/
       commands.rs               # IPC command handlers
       sidecar.rs                # Node.js sidecar lifecycle + JSON-lines bridge
       projects.rs               # Project scanning + persistence
+      themes.rs                 # Theme loading from JSON files
       prompts.rs                # System prompt file CRUD
       usage_stats.rs            # Token usage statistics
       logging.rs                # File + stderr logging
@@ -1631,6 +1838,7 @@ app/
       marketplace.rs            # Anvil marketplace sync
       autocomplete.rs           # File path autocomplete
     data/
+      themes/                   # Theme JSON files
       prompts/                  # System prompt .md files
     tauri.conf.json             # Tauri configuration
     Cargo.toml                  # Rust dependencies
