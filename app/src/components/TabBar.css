@@ -42,9 +42,9 @@
   cursor: pointer;
   white-space: nowrap;
   width: var(--tab-max-width);
-  min-width: 100px;
+  min-width: var(--tab-max-width);
   max-width: var(--tab-max-width);
-  flex-shrink: 1;
+  flex-shrink: 0;
   transition: background 0.15s ease-out, color 0.15s ease-out;
   animation: tab-enter 0.2s ease-out;
 }
