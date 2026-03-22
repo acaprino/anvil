@@ -1,6 +1,6 @@
 import type { SessionController } from "../hooks/useSessionController";
 
-/** Shared props interface for ChatView and TerminalView. */
+/** Props interface for TerminalView (the session rendering component). */
 export interface SessionViewProps {
   tabId: string;
   modelIdx: number;

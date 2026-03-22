@@ -484,7 +484,6 @@ function AppContent() {
                     onExit={handleExit}
                     onError={handleError}
                     onTaglineChange={handleTaglineChange}
-                    viewStyle={settings?.view_style ?? "terminal"}
                     hideThinking={settings?.hide_thinking}
                     plugins={pluginPaths}
                     resumeSessionId={tab.resumeSessionId}

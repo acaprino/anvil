@@ -17,7 +17,7 @@ interface Props {
   inputStyle?: "chat" | "terminal";
   sdkCommands?: SlashCommand[];
   sdkAgents?: AgentInfoSDK[];
-  /** File paths from drag-drop on ChatView — consumed and cleared via onDroppedFilesConsumed */
+  /** File paths from drag-drop on the view — consumed and cleared via onDroppedFilesConsumed */
   droppedFiles?: string[];
   onDroppedFilesConsumed?: () => void;
   queueLength?: number;
@@ -83,7 +83,7 @@ function ChatInputInner({ onSubmit, onCommand, processing, isActive, inputStyle 
     setAttachments((prev) => [...prev, ...newAttachments]);
   }, []);
 
-  // Consume dropped files from parent (ChatView drag-drop)
+  // Consume dropped files from parent (drag-drop)
   useEffect(() => {
     if (droppedFiles && droppedFiles.length > 0) {
       addFiles(droppedFiles);

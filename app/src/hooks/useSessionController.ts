@@ -1,6 +1,6 @@
 /**
  * useSessionController — extracts all session lifecycle and interaction logic
- * from ChatView into a reusable hook, so both ChatView and TerminalView can
+ * into a reusable hook so TerminalView can
  * share the same agent plumbing.
  *
  * Sub-hooks:

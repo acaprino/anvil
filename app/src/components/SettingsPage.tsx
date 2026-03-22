@@ -37,10 +37,6 @@ const TAB_LAYOUT_OPTIONS = [
   { label: "Horizontal", value: "horizontal" },
   { label: "Vertical", value: "vertical" },
 ];
-const VIEW_STYLE_OPTIONS = [
-  { label: "Terminal", value: "terminal" },
-  { label: "Chat", value: "chat" },
-];
 
 const SETTINGS_TABS: { id: SettingsTab; label: string }[] = [
   { id: "themes", label: "Themes" },
@@ -79,9 +75,6 @@ export default memo(function SettingsPage({ tabId, onRequestClose, isActive, set
   }, [onUpdate]);
   const handleTabLayoutChange = useCallback((idx: number) => {
     onUpdate({ vertical_tabs: idx === 1 });
-  }, [onUpdate]);
-  const handleViewStyleChange = useCallback((idx: number) => {
-    onUpdate({ view_style: idx === 0 ? "terminal" : "chat" });
   }, [onUpdate]);
   // Font state (local until explicit conceptual grouping, but we apply live)
   const [fontFamily, setFontFamily] = useState(settings.font_family || "Cascadia Code");
@@ -338,15 +331,6 @@ export default memo(function SettingsPage({ tabId, onRequestClose, isActive, set
           {activeTab === "behavior" && (
                 <div className="settings-panel" key="behavior">
                   <h3 className="settings-section__title">Behavior</h3>
-              <div className="settings-toggle-row">
-                <span>View style</span>
-                <SegmentedControl
-                  options={VIEW_STYLE_OPTIONS}
-                  value={settings.view_style ?? "terminal"}
-                  onChange={handleViewStyleChange}
-                  title="View style"
-                />
-              </div>
               <div className="settings-toggle-row">
                 <span>Tab layout</span>
                 <SegmentedControl
