@@ -9,6 +9,7 @@ export async function spawnAgent(
   systemPrompt: string,
   permMode: string,
   plugins: string[],
+  disabledHooks: string[],
   onEvent: (event: AgentEvent) => void,
 ): Promise<Channel<AgentEvent>> {
   const channel = new Channel<AgentEvent>();
@@ -22,6 +23,7 @@ export async function spawnAgent(
     systemPrompt,
     permMode,
     plugins,
+    disabledHooks,
     onEvent: channel,
   });
 
@@ -40,6 +42,7 @@ export async function resumeAgent(
   effort: string,
   permMode: string,
   plugins: string[],
+  disabledHooks: string[],
   onEvent: (event: AgentEvent) => void,
 ): Promise<Channel<AgentEvent>> {
   const channel = new Channel<AgentEvent>();
@@ -53,6 +56,7 @@ export async function resumeAgent(
     effort,
     permMode,
     plugins,
+    disabledHooks,
     onEvent: channel,
   });
 
@@ -67,6 +71,7 @@ export async function forkAgent(
   effort: string,
   permMode: string,
   plugins: string[],
+  disabledHooks: string[],
   onEvent: (event: AgentEvent) => void,
 ): Promise<Channel<AgentEvent>> {
   const channel = new Channel<AgentEvent>();
@@ -80,6 +85,7 @@ export async function forkAgent(
     effort,
     permMode,
     plugins,
+    disabledHooks,
     onEvent: channel,
   });
 

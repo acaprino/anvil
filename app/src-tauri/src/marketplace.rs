@@ -1,5 +1,6 @@
 use std::fs;
 use std::path::PathBuf;
+use serde::Serialize;
 
 const MARKETPLACE_NAME: &str = "alfio-claude-plugins";
 
@@ -153,4 +154,63 @@ pub fn disable_global() -> Result<(), String> {
         .map_err(|e| format!("write settings.json: {e}"))?;
     log_info!("marketplace: removed {} plugins from global settings", keys_to_remove.len());
     Ok(())
+}
+
+#[derive(Serialize, Clone)]
+pub struct HookInfo {
+    pub plugin: String,
+    pub event: String,
+    pub handler: String,
+    pub matcher: Option<String>,
+}
+
+/// Read hooks.json from each plugin directory and return structured hook metadata.
+pub fn get_hooks() -> Vec<HookInfo> {
+    let plugins_dir = marketplace_dir().join("plugins");
+    if !plugins_dir.is_dir() {
+        return Vec::new();
+    }
+
+    let mut hooks = Vec::new();
+    if let Ok(entries) = fs::read_dir(&plugins_dir) {
+        for entry in entries.flatten() {
+            if !entry.file_type().map(|ft| ft.is_dir()).unwrap_or(false) {
+                continue;
+            }
+            let plugin_name = entry.file_name().to_string_lossy().into_owned();
+            let hooks_json = entry.path().join("hooks").join("hooks.json");
+            if !hooks_json.exists() {
+                continue;
+            }
+            let Ok(data) = fs::read_to_string(&hooks_json) else { continue };
+            let Ok(parsed) = serde_json::from_str::<serde_json::Value>(&data) else { continue };
+            let Some(hooks_obj) = parsed.get("hooks").and_then(|h| h.as_object()) else { continue };
+
+            for (event_name, groups) in hooks_obj {
+                let Some(groups_arr) = groups.as_array() else { continue };
+                for group in groups_arr {
+                    let matcher = group.get("matcher").and_then(|m| m.as_str()).map(|s| s.to_string());
+                    let Some(hook_list) = group.get("hooks").and_then(|h| h.as_array()) else { continue };
+                    for hook in hook_list {
+                        let Some(command) = hook.get("command").and_then(|c| c.as_str()) else { continue };
+                        // Extract handler name from command like: node ".../handlers/security-gate.js"
+                        let handler = command
+                            .rsplit(['/', '\\'])
+                            .next()
+                            .unwrap_or(command)
+                            .trim_end_matches('"')
+                            .trim_end_matches(".js")
+                            .to_string();
+                        hooks.push(HookInfo {
+                            plugin: plugin_name.clone(),
+                            event: event_name.clone(),
+                            handler,
+                            matcher: matcher.clone(),
+                        });
+                    }
+                }
+            }
+        }
+    }
+    hooks
 }

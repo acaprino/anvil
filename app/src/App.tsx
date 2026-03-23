@@ -501,6 +501,7 @@ function AppContent() {
                     hideThinking={settings?.hide_thinking}
                     onProcessingChange={(p: boolean) => markProcessing(tab.id, p)}
                     plugins={pluginPaths}
+                    disabledHooks={settings?.disabled_hooks ?? []}
                     resumeSessionId={tab.resumeSessionId}
                     forkSessionId={tab.forkSessionId}
                     onConfigChange={handleConfigChange}

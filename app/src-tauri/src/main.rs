@@ -169,6 +169,7 @@ fn main() {
             commands::run_claude_command,
             commands::load_themes,
             commands::get_marketplace_plugins,
+            commands::get_hooks_info,
             commands::set_marketplace_global,
             commands::write_text_file,
             autocomplete::autocomplete_files,

@@ -92,6 +92,7 @@ export interface SessionControllerProps {
   onError: (tabId: string, msg: string) => void;
   onTaglineChange?: (tabId: string, tagline: string) => void;
   plugins?: string[];
+  disabledHooks?: string[];
   resumeSessionId?: string;
   forkSessionId?: string;
 }
@@ -135,8 +136,11 @@ export function useSessionController(props: SessionControllerProps): SessionCont
   const {
     tabId, projectPath, modelIdx, effortIdx, permModeIdx, systemPrompt,
     isActive, onSessionCreated, onNewOutput, onExit, onError, onTaglineChange,
-    plugins = [], resumeSessionId, forkSessionId,
+    plugins = [], disabledHooks = [], resumeSessionId, forkSessionId,
   } = props;
+
+  const disabledHooksRef = useRef(disabledHooks);
+  disabledHooksRef.current = disabledHooks;
 
   const [messages, setMessages] = useState<ChatMessage[]>([]);
   const [inputState, setInputStateRaw] = useState<"idle" | "awaiting_input" | "processing">("idle");
@@ -434,10 +438,10 @@ export function useSessionController(props: SessionControllerProps): SessionCont
       if (cancelled) return;
 
       const launchPromise = resumeSessionId
-        ? resumeAgent(tabId, resumeSessionId, projectPath, modelId, effortId, permMode, plugins, handleAgentEvent)
+        ? resumeAgent(tabId, resumeSessionId, projectPath, modelId, effortId, permMode, plugins, disabledHooksRef.current, handleAgentEvent)
         : forkSessionId
-          ? forkAgent(tabId, forkSessionId, projectPath, modelId, effortId, permMode, plugins, handleAgentEvent)
-          : spawnAgent(tabId, projectPath, modelId, effortId, sanitizeInput(systemPrompt), permMode, plugins, handleAgentEvent);
+          ? forkAgent(tabId, forkSessionId, projectPath, modelId, effortId, permMode, plugins, disabledHooksRef.current, handleAgentEvent)
+          : spawnAgent(tabId, projectPath, modelId, effortId, sanitizeInput(systemPrompt), permMode, plugins, disabledHooksRef.current, handleAgentEvent);
 
       launchPromise
         .then((channel) => {

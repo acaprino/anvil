@@ -76,7 +76,6 @@
   scrollbar-width: thin;
   scrollbar-color: var(--surface) transparent;
   padding: var(--space-4) var(--space-6);
-  max-width: 640px;
 }
 
 .settings-section {
@@ -141,6 +140,7 @@
   cursor: pointer;
   position: relative;
   padding: 0;
+  flex-shrink: 0;
   transition: background 0.15s ease-out, border-color 0.15s ease-out;
 }
 
@@ -178,7 +178,24 @@
   background: var(--green);
 }
 
-/* Plugin list (Advanced tab) */
+/* Plugin & Hooks list (Plugins tab) */
+.plugins-section-header {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  margin-bottom: var(--space-2);
+}
+
+.plugins-section-header .settings-section__title {
+  border-bottom: none;
+  padding-bottom: 0;
+}
+
+.modal-btn.compact {
+  padding: var(--space-1) var(--space-3);
+  font-size: var(--text-xs);
+}
+
 .plugin-list {
   display: flex;
   flex-direction: column;
@@ -188,6 +205,7 @@
   display: flex;
   align-items: center;
   justify-content: space-between;
+  gap: var(--space-3);
   padding: var(--space-2) 0;
   font-size: var(--text-sm);
   color: var(--text);
@@ -202,4 +220,16 @@
   text-overflow: ellipsis;
   white-space: nowrap;
   min-width: 0;
+}
+
+.hook-info {
+  display: flex;
+  flex-direction: column;
+  min-width: 0;
+  gap: 1px;
+}
+
+.hook-meta {
+  font-size: var(--text-xs);
+  color: var(--text-dim);
 }

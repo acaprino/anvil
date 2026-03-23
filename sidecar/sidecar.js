@@ -3,8 +3,9 @@
 import { query, listSessions, getSessionMessages, } from "@anthropic-ai/claude-agent-sdk";
 import Anthropic from "@anthropic-ai/sdk";
 import { createInterface } from "readline";
-import { readFileSync } from "fs";
+import { readFileSync, writeFileSync, unlinkSync, mkdirSync, cpSync, existsSync, rmSync } from "fs";
 import { join } from "path";
+import { tmpdir } from "os";
 // ── Active sessions ─────────────────────────────────────────────────
 // Active sessions: tabId → Session
 const sessions = new Map();
@@ -82,7 +83,7 @@ const VALID_PERM_MODES = new Set(["plan", "acceptEdits", "bypassPermissions"]);
 const ACCEPT_EDITS_TOOLS = new Set(["Write", "Edit", "Read", "Glob", "Grep"]);
 // ── Command handlers ────────────────────────────────────────────────
 async function handleCreate(cmd) {
-    const { tabId, cwd, model, effort, systemPrompt, permMode, skipPerms, allowedTools, plugins } = cmd;
+    const { tabId, cwd, model, effort, systemPrompt, permMode, skipPerms, allowedTools, plugins, disabledHooks } = cmd;
     if (sessions.has(tabId)) {
         // Kill existing session (React 18 StrictMode sends create→create→kill)
         log(`Replacing existing session for tab ${tabId}`);
@@ -236,6 +237,40 @@ async function handleCreate(cmd) {
         );
     } catch { /* settings missing or malformed — no marketplace plugins */ }
     options.settings = { ...(options.settings || {}), enabledPlugins: filteredPlugins };
+    // Per-session hook filtering: if hooks are disabled, create a temp copy of the
+    // anvil-hooks plugin with a filtered hooks.json that omits disabled entries.
+    // This avoids the race condition of using a global process.env across concurrent sessions.
+    const KNOWN_HOOKS = new Set(["anvil-logo", "skill-awareness", "cleanup-builtins", "security-gate", "autocompact"]);
+    const validated = (disabledHooks || []).filter(h => KNOWN_HOOKS.has(h));
+    if (validated.length > 0 && options.plugins) {
+        const disabledSet = new Set(validated);
+        options.plugins = options.plugins.map(p => {
+            const hooksJsonPath = join(p.path, "hooks", "hooks.json");
+            if (!existsSync(hooksJsonPath)) return p;
+            try {
+                const original = JSON.parse(readFileSync(hooksJsonPath, "utf-8"));
+                if (!original.hooks) return p;
+                // Filter out disabled hooks from each event group
+                const filtered = { ...original, hooks: {} };
+                for (const [event, groups] of Object.entries(original.hooks)) {
+                    const filteredGroups = [];
+                    for (const group of groups) {
+                        const kept = (group.hooks || []).filter(h => {
+                            const name = (h.command || "").split(/[/\\]/).pop()?.replace(/"/g, "").replace(/\.js$/, "") || "";
+                            return !disabledSet.has(name);
+                        });
+                        if (kept.length > 0) filteredGroups.push({ ...group, hooks: kept });
+                    }
+                    if (filteredGroups.length > 0) filtered.hooks[event] = filteredGroups;
+                }
+                // Write filtered copy to temp dir
+                const tmpPlugin = join(tmpdir(), `anvil-hooks-${tabId}`);
+                cpSync(p.path, tmpPlugin, { recursive: true, force: true });
+                writeFileSync(join(tmpPlugin, "hooks", "hooks.json"), JSON.stringify(filtered, null, 2));
+                return { ...p, path: tmpPlugin };
+            } catch { return p; }
+        });
+    }
     // Intercept AskUserQuestion tool to route to Anvil UI
     options.hooks = {
         ...(options.hooks || {}),
@@ -618,6 +653,11 @@ function handleKill(cmd, silent = false) {
     session.query?.close();
     sessions.delete(cmd.tabId);
     autocompleteTimestamps.delete(cmd.tabId);
+    // Clean up per-session filtered hooks temp dir
+    try {
+        const tmpPlugin = join(tmpdir(), `anvil-hooks-${cmd.tabId}`);
+        if (existsSync(tmpPlugin)) rmSync(tmpPlugin, { recursive: true, force: true });
+    } catch { /* ignore */ }
     // Silent mode: don't emit exit (used when replacing a session in handleCreate,
     // because the exit event would cause Rust to remove the Channel).
     if (!silent)

@@ -63,6 +63,7 @@ export interface Settings {
   hide_thinking?: boolean;
   marketplace_global?: boolean;
   disabled_plugins?: string[];
+  disabled_hooks?: string[];
   onboarding_seen?: boolean;
   skip_close_confirm?: boolean;
 }

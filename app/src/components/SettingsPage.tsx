@@ -10,7 +10,9 @@ import "./SettingsPage.css";
 type DirMode = "container" | "single";
 type DirEntry = { path: string; mode: DirMode };
 
-type SettingsTab = "themes" | "fonts" | "projects" | "behavior" | "advanced";
+type SettingsTab = "themes" | "fonts" | "projects" | "behavior" | "plugins";
+
+type HookInfo = { plugin: string; event: string; handler: string; matcher: string | null };
 
 const FONT_OPTIONS = [
   "Cascadia Code",
@@ -44,7 +46,7 @@ const SETTINGS_TABS: { id: SettingsTab; label: string }[] = [
   { id: "fonts", label: "Fonts" },
   { id: "projects", label: "Projects" },
   { id: "behavior", label: "Behavior" },
-  { id: "advanced", label: "Advanced" },
+  { id: "plugins", label: "Plugins" },
 ];
 
 interface SettingsPageProps {
@@ -99,7 +101,17 @@ export default memo(function SettingsPage({ tabId, onRequestClose, isActive, set
   const disabledPluginsRef = useRef(settings.disabled_plugins ?? []);
   disabledPluginsRef.current = settings.disabled_plugins ?? [];
 
-  // Apply font changes live — skip mount (initial values match settings)
+  // Ref for disabled_hooks so rapid toggles always read the freshest value
+  const disabledHooksRef = useRef(settings.disabled_hooks ?? []);
+  disabledHooksRef.current = settings.disabled_hooks ?? [];
+
+  // Load hooks info from backend
+  const [hooksInfo, setHooksInfo] = useState<HookInfo[]>([]);
+  useEffect(() => {
+    invoke<HookInfo[]>("get_hooks_info").then(setHooksInfo).catch(console.error);
+  }, []);
+
+  // Apply font changes live -- skip mount (initial values match settings)
   const onUpdateRef = useRef(onUpdate);
   onUpdateRef.current = onUpdate;
   const mountedRef = useRef(false);
@@ -141,6 +153,15 @@ export default memo(function SettingsPage({ tabId, onRequestClose, isActive, set
     });
     setDirsDirty(false);
   };
+
+  // Plugin helpers
+  const pluginNames = allPluginPaths.map((p) => p.replace(/[\\/]+$/, "").split(/[\\/]/).pop() ?? "");
+  const disabledPlugins = settings.disabled_plugins ?? [];
+  const allPluginsDisabled = pluginNames.length > 0 && disabledPlugins.length >= pluginNames.length;
+
+  const disabledHooks = settings.disabled_hooks ?? [];
+  const hookHandlerNames = hooksInfo.map((h) => h.handler);
+  const allHooksDisabled = hookHandlerNames.length > 0 && hookHandlerNames.every((h) => disabledHooks.includes(h));
 
   return (
     <div className="settings-page">
@@ -357,16 +378,6 @@ export default memo(function SettingsPage({ tabId, onRequestClose, isActive, set
                     />
                   </div>
                   <div className="settings-toggle-row">
-                    <span>Security gate</span>
-                    <Switch.Root
-                      className="settings-switch"
-                      checked={settings.security_gate}
-                      onCheckedChange={(checked) => onUpdate({ security_gate: checked })}
-                    >
-                      <Switch.Thumb className="settings-switch-thumb" />
-                    </Switch.Root>
-                  </div>
-                  <div className="settings-toggle-row">
                     <span>Autocomplete</span>
                     <Switch.Root
                       className="settings-switch"
@@ -403,20 +414,36 @@ export default memo(function SettingsPage({ tabId, onRequestClose, isActive, set
         </div>
           )}
 
-          {activeTab === "advanced" && (
-                    <div className="settings-panel" key="advanced">
-                      <h3 className="settings-section__title">Plugins</h3>
-                  <p className="modal-hint" style={{ marginTop: 0, marginBottom: "var(--space-3)" }}>
-                    Toggle plugins on/off. Disabling a plugin also disables its hooks. Changes apply to new sessions.
-                  </p>
+          {activeTab === "plugins" && (
+                    <div className="settings-panel" key="plugins">
+                      <p className="modal-hint" style={{ marginTop: 0, marginBottom: "var(--space-4)" }}>
+                        Changes apply to new sessions only. Running sessions keep their plugin/hook configuration.
+                      </p>
+
+                      <div className="plugins-section-header">
+                        <h3 className="settings-section__title" style={{ marginBottom: 0 }}>Plugins</h3>
+                        <button
+                          className="modal-btn compact"
+                          onClick={() => {
+                            if (allPluginsDisabled) {
+                              disabledPluginsRef.current = [];
+                              onUpdate({ disabled_plugins: [] });
+                            } else {
+                              disabledPluginsRef.current = [...pluginNames];
+                              onUpdate({ disabled_plugins: [...pluginNames] });
+                            }
+                          }}
+                        >
+                          {allPluginsDisabled ? "Enable All" : "Disable All"}
+                        </button>
+                      </div>
                   <div className="plugin-list">
                     {allPluginPaths.length === 0 ? (
                       <p className="modal-hint">No plugins found.</p>
                     ) : (
-                      allPluginPaths.map((pluginPath) => {
-                        const name = pluginPath.replace(/[\\/]+$/, "").split(/[\\/]/).pop() ?? "";
-                        const disabled = settings.disabled_plugins ?? [];
-                        const isEnabled = !disabled.includes(name);
+                      allPluginPaths.map((pluginPath, i) => {
+                        const name = pluginNames[i];
+                        const isEnabled = !disabledPlugins.includes(name);
                         return (
                           <div key={name} className="plugin-row">
                             <span className="plugin-name">{name}</span>
@@ -439,6 +466,56 @@ export default memo(function SettingsPage({ tabId, onRequestClose, isActive, set
                       })
                     )}
                   </div>
+
+                      <div className="plugins-section-header" style={{ marginTop: "var(--space-5)" }}>
+                        <h3 className="settings-section__title" style={{ marginBottom: 0 }}>Hooks</h3>
+                        {hooksInfo.length > 0 && (
+                        <button
+                          className="modal-btn compact"
+                          onClick={() => {
+                            if (allHooksDisabled) {
+                              disabledHooksRef.current = [];
+                              onUpdate({ disabled_hooks: [] });
+                            } else {
+                              const all = [...hookHandlerNames];
+                              disabledHooksRef.current = all;
+                              onUpdate({ disabled_hooks: all });
+                            }
+                          }}
+                        >
+                          {allHooksDisabled ? "Enable All" : "Disable All"}
+                        </button>
+                        )}
+                      </div>
+                      <div className="plugin-list">
+                        {hooksInfo.length === 0 ? (
+                          <p className="modal-hint">Hooks will appear after rebuilding the Rust backend.</p>
+                        ) : hooksInfo.map((hook) => {
+                          const isEnabled = !disabledHooks.includes(hook.handler);
+                          return (
+                            <div key={hook.handler} className="plugin-row">
+                              <div className="hook-info">
+                                <span className="plugin-name">{hook.handler}</span>
+                                <span className="hook-meta">{hook.event}{hook.matcher ? ` [${hook.matcher}]` : ""}</span>
+                              </div>
+                              <Switch.Root
+                                className="settings-switch"
+                                checked={isEnabled}
+                                onCheckedChange={(checked) => {
+                                  const prev = disabledHooksRef.current;
+                                  const next = checked
+                                    ? prev.filter((h) => h !== hook.handler)
+                                    : [...prev, hook.handler];
+                                  disabledHooksRef.current = next;
+                                  onUpdate({ disabled_hooks: next });
+                                }}
+                              >
+                                <Switch.Thumb className="settings-switch-thumb" />
+                              </Switch.Root>
+                            </div>
+                          );
+                        })}
+                      </div>
         </div>
           )}
         </div>

@@ -351,6 +351,7 @@ pub fn spawn_agent(
     system_prompt: String,
     perm_mode: String,
     plugins: Vec<String>,
+    disabled_hooks: Vec<String>,
     on_event: Channel<AgentEvent>,
 ) -> Result<(), String> {
     if !sidecar.try_restart() {
@@ -373,6 +374,7 @@ pub fn spawn_agent(
         "systemPrompt": if system_prompt.is_empty() { serde_json::Value::Null } else { serde_json::Value::String(system_prompt) },
         "permMode": perm_mode,
         "plugins": plugins,
+        "disabledHooks": disabled_hooks,
     }))
 }
 
@@ -416,6 +418,7 @@ pub fn agent_resume(
     effort: String,
     perm_mode: String,
     plugins: Vec<String>,
+    disabled_hooks: Vec<String>,
     on_event: Channel<AgentEvent>,
 ) -> Result<(), String> {
     if !sidecar.try_restart() {
@@ -434,6 +437,7 @@ pub fn agent_resume(
         "effort": effort,
         "permMode": perm_mode,
         "plugins": plugins,
+        "disabledHooks": disabled_hooks,
     }))
 }
 
@@ -447,6 +451,7 @@ pub fn agent_fork(
     effort: String,
     perm_mode: String,
     plugins: Vec<String>,
+    disabled_hooks: Vec<String>,
     on_event: Channel<AgentEvent>,
 ) -> Result<(), String> {
     if !sidecar.try_restart() {
@@ -465,6 +470,7 @@ pub fn agent_fork(
         "effort": effort,
         "permMode": perm_mode,
         "plugins": plugins,
+        "disabledHooks": disabled_hooks,
     }))
 }
 
@@ -820,6 +826,11 @@ pub async fn write_text_file(path: String, content: String) -> Result<(), String
 #[tauri::command]
 pub fn get_marketplace_plugins() -> Vec<String> {
     crate::marketplace::get_plugin_paths()
+}
+
+#[tauri::command]
+pub fn get_hooks_info() -> Vec<crate::marketplace::HookInfo> {
+    crate::marketplace::get_hooks()
 }
 
 #[tauri::command]
