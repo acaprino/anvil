@@ -3,9 +3,8 @@
 import { query, listSessions, getSessionMessages, } from "@anthropic-ai/claude-agent-sdk";
 import Anthropic from "@anthropic-ai/sdk";
 import { createInterface } from "readline";
-import { readFileSync, writeFileSync, unlinkSync, mkdirSync, cpSync, existsSync, rmSync } from "fs";
+import { readFileSync } from "fs";
 import { join } from "path";
-import { tmpdir } from "os";
 // ── Active sessions ─────────────────────────────────────────────────
 // Active sessions: tabId → Session
 const sessions = new Map();
@@ -83,7 +82,7 @@ const VALID_PERM_MODES = new Set(["plan", "acceptEdits", "bypassPermissions"]);
 const ACCEPT_EDITS_TOOLS = new Set(["Write", "Edit", "Read", "Glob", "Grep"]);
 // ── Command handlers ────────────────────────────────────────────────
 async function handleCreate(cmd) {
-    const { tabId, cwd, model, effort, systemPrompt, permMode, skipPerms, allowedTools, plugins, disabledHooks } = cmd;
+    const { tabId, cwd, model, effort, systemPrompt, permMode, skipPerms, allowedTools, plugins } = cmd;
     if (sessions.has(tabId)) {
         // Kill existing session (React 18 StrictMode sends create→create→kill)
         log(`Replacing existing session for tab ${tabId}`);
@@ -226,50 +225,6 @@ async function handleCreate(cmd) {
     }
     if (plugins && plugins.length > 0) {
         options.plugins = plugins.map(p => ({ type: 'local', path: p }));
-    }
-    // Only load figtree-toolset marketplace plugins — block all other marketplaces
-    let filteredPlugins = {};
-    try {
-        const settingsPath = join(process.env.HOME || process.env.USERPROFILE || "", ".claude", "settings.json");
-        const raw = JSON.parse(readFileSync(settingsPath, "utf-8"));
-        filteredPlugins = Object.fromEntries(
-            Object.entries(raw.enabledPlugins || {}).filter(([key]) => /^[a-zA-Z0-9_-]+@figtree-toolset$/.test(key))
-        );
-    } catch { /* settings missing or malformed — no marketplace plugins */ }
-    options.settings = { ...(options.settings || {}), enabledPlugins: filteredPlugins };
-    // Per-session hook filtering: if hooks are disabled, create a temp copy of the
-    // figtree-hooks plugin with a filtered hooks.json that omits disabled entries.
-    // This avoids the race condition of using a global process.env across concurrent sessions.
-    const KNOWN_HOOKS = new Set(["figtree-logo", "skill-awareness", "cleanup-builtins", "security-gate", "autocompact"]);
-    const validated = (disabledHooks || []).filter(h => KNOWN_HOOKS.has(h));
-    if (validated.length > 0 && options.plugins) {
-        const disabledSet = new Set(validated);
-        options.plugins = options.plugins.map(p => {
-            const hooksJsonPath = join(p.path, "hooks", "hooks.json");
-            if (!existsSync(hooksJsonPath)) return p;
-            try {
-                const original = JSON.parse(readFileSync(hooksJsonPath, "utf-8"));
-                if (!original.hooks) return p;
-                // Filter out disabled hooks from each event group
-                const filtered = { ...original, hooks: {} };
-                for (const [event, groups] of Object.entries(original.hooks)) {
-                    const filteredGroups = [];
-                    for (const group of groups) {
-                        const kept = (group.hooks || []).filter(h => {
-                            const name = (h.command || "").split(/[/\\]/).pop()?.replace(/"/g, "").replace(/\.js$/, "") || "";
-                            return !disabledSet.has(name);
-                        });
-                        if (kept.length > 0) filteredGroups.push({ ...group, hooks: kept });
-                    }
-                    if (filteredGroups.length > 0) filtered.hooks[event] = filteredGroups;
-                }
-                // Write filtered copy to temp dir
-                const tmpPlugin = join(tmpdir(), `figtree-hooks-${tabId}`);
-                cpSync(p.path, tmpPlugin, { recursive: true, force: true });
-                writeFileSync(join(tmpPlugin, "hooks", "hooks.json"), JSON.stringify(filtered, null, 2));
-                return { ...p, path: tmpPlugin };
-            } catch { return p; }
-        });
     }
     // Intercept AskUserQuestion tool to route to Figtree UI
     options.hooks = {
@@ -443,9 +398,16 @@ async function consumeQuery(tabId, q, sessionRef) {
                     }
                     // Reset streaming flag after complete message
                     hasStreamedText = false;
-                    // Check for errors
-                    if (msg.error) {
-                        emit({ evt: "error", tabId, code: msg.error, message: msg.error_message || msg.error });
+                    // Check for errors (skip rate_limit — already handled by rate_limit_event)
+                    if (msg.error && msg.error !== "rate_limit") {
+                        const FRIENDLY = {
+                            authentication_failed: "Authentication failed",
+                            billing_error: "Billing error",
+                            invalid_request: "Invalid request",
+                            server_error: "Server error",
+                            max_output_tokens: "Max output tokens reached",
+                        };
+                        emit({ evt: "error", tabId, code: msg.error, message: FRIENDLY[msg.error] || msg.error });
                     }
                     break;
                 }
@@ -503,17 +465,16 @@ async function consumeQuery(tabId, q, sessionRef) {
                             session._sessionId = sid;
                             emit({ evt: "status", tabId, status: "init", model: "", sessionId: sid });
                         }
-                        // Fetch available commands, agents, and models from the SDK
+                        // Fetch available commands and agents from the SDK
                         try {
-                            const [commands, agents, models] = await Promise.all([
+                            const [commands, agents] = await Promise.all([
                                 q.supportedCommands(),
                                 q.supportedAgents(),
-                                q.supportedModels(),
                             ]);
-                            emit({ evt: "commands_init", tabId, commands, agents, models });
+                            emit({ evt: "commands_init", tabId, commands, agents });
                         }
                         catch (err) {
-                            log(`Failed to fetch commands/agents/models for ${tabId}:`, err.message);
+                            log(`Failed to fetch commands/agents for ${tabId}:`, err.message);
                         }
                     }
                     else if (msg.subtype === "status") {
@@ -654,11 +615,6 @@ function handleKill(cmd, silent = false) {
     session.query?.close();
     sessions.delete(cmd.tabId);
     autocompleteTimestamps.delete(cmd.tabId);
-    // Clean up per-session filtered hooks temp dir
-    try {
-        const tmpPlugin = join(tmpdir(), `figtree-hooks-${cmd.tabId}`);
-        if (existsSync(tmpPlugin)) rmSync(tmpPlugin, { recursive: true, force: true });
-    } catch { /* ignore */ }
     // Silent mode: don't emit exit (used when replacing a session in handleCreate,
     // because the exit event would cause Rust to remove the Channel).
     if (!silent)
@@ -793,20 +749,19 @@ async function handleRefreshCommands(cmd) {
     const sessionTabId = cmd.sessionTabId;
     const session = sessions.get(sessionTabId);
     if (!session?.query) {
-        emit({ evt: "commands", tabId: cmd.tabId, commands: [], agents: [], models: [] });
+        emit({ evt: "commands", tabId: cmd.tabId, commands: [], agents: [] });
         return;
     }
     try {
-        const [commands, agents, models] = await Promise.all([
+        const [commands, agents] = await Promise.all([
             session.query.supportedCommands(),
             session.query.supportedAgents(),
-            session.query.supportedModels(),
         ]);
-        emit({ evt: "commands", tabId: cmd.tabId, commands, agents, models });
+        emit({ evt: "commands", tabId: cmd.tabId, commands, agents });
     }
     catch (err) {
         log(`refreshCommands error for ${sessionTabId}:`, err.message);
-        emit({ evt: "commands", tabId: cmd.tabId, commands: [], agents: [], models: [] });
+        emit({ evt: "commands", tabId: cmd.tabId, commands: [], agents: [] });
     }
 }
 async function handleListSessions(cmd) {
@@ -1082,17 +1037,11 @@ rl.on("close", () => {
     sessions.clear();
     process.exit(0);
 });
-let zodErrorCount = 0;
 process.on("uncaughtException", (err) => {
     log(`uncaughtException: ${err.message}\n${err.stack}`);
     if (err.name === "ZodError" || err.message?.includes("Zod")) {
-        zodErrorCount++;
-        log(`ZodError #${zodErrorCount} (non-fatal): ${JSON.stringify(err.issues || err.errors || err, null, 2)}`);
-        if (zodErrorCount > 3) {
-            log("Too many ZodErrors — exiting for clean restart");
-            process.exit(1);
-        }
-        return;
+        log(`ZodError details (non-fatal): ${JSON.stringify(err.issues || err.errors || err, null, 2)}`);
+        return; // ZodErrors are non-fatal SDK schema issues — safe to continue
     }
     // Unknown exceptions may corrupt shared state — exit for clean restart via try_restart
     log("Exiting due to unrecoverable exception");

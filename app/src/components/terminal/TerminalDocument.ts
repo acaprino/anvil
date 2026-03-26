@@ -295,6 +295,8 @@ export class TerminalDocument {
   }
 
   handleError(code: string, message: string): void {
+    this.finalizeStreaming();
+    this.finalizeThinking();
     const block = new ErrorBlock(this.nextId(), code, message);
     this.addBlock(block);
   }

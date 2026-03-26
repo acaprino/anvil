@@ -398,9 +398,16 @@ async function consumeQuery(tabId, q, sessionRef) {
                     }
                     // Reset streaming flag after complete message
                     hasStreamedText = false;
-                    // Check for errors
-                    if (msg.error) {
-                        emit({ evt: "error", tabId, code: msg.error, message: msg.error_message || msg.error });
+                    // Check for errors (skip rate_limit — already handled by rate_limit_event)
+                    if (msg.error && msg.error !== "rate_limit") {
+                        const FRIENDLY = {
+                            authentication_failed: "Authentication failed",
+                            billing_error: "Billing error",
+                            invalid_request: "Invalid request",
+                            server_error: "Server error",
+                            max_output_tokens: "Max output tokens reached",
+                        };
+                        emit({ evt: "error", tabId, code: msg.error, message: msg.error_message || FRIENDLY[msg.error] || msg.error });
                     }
                     break;
                 }

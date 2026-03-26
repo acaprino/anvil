@@ -876,9 +876,16 @@ async function consumeQuery(tabId: string, q: Query, sessionRef: Session): Promi
           }
           // Reset streaming flag after complete message
           hasStreamedText = false;
-          // Check for errors
-          if (msg.error) {
-            emit({ evt: "error", tabId, code: msg.error, message: msg.error || msg.error });
+          // Check for errors (skip rate_limit — already handled by rate_limit_event)
+          if (msg.error && msg.error !== "rate_limit") {
+            const FRIENDLY: Record<string, string> = {
+              authentication_failed: "Authentication failed",
+              billing_error: "Billing error",
+              invalid_request: "Invalid request",
+              server_error: "Server error",
+              max_output_tokens: "Max output tokens reached",
+            };
+            emit({ evt: "error", tabId, code: msg.error, message: FRIENDLY[msg.error] || msg.error });
           }
           break;
         }
