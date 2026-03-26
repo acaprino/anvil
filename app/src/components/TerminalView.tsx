@@ -1,6 +1,6 @@
 import { memo, useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { useVirtualizer } from "@tanstack/react-virtual";
-import { MODELS, EFFORTS, PERM_MODES } from "../types";
+import { PERM_MODES } from "../types";
 import { useStickyScroll } from "../hooks/useStickyScroll";
 import type { DisplayItem } from "../hooks/useSessionController";
 import { getCurrentWindow } from "@tauri-apps/api/window";
@@ -145,6 +145,7 @@ export default memo(function TerminalView(props: SessionViewProps) {
     handleCommand, handleInterrupt, handleBackground,
     queueLength, backgrounded,
     droppedFiles, setDroppedFiles, handleDroppedFilesConsumed, handleAttachClick,
+    models, efforts,
   } = ctrl;
 
   const [isDragging, setIsDragging] = useState(false);
@@ -408,14 +409,14 @@ export default memo(function TerminalView(props: SessionViewProps) {
         <button
           className="bottom-pill tv-bottom-model"
           title="Click to cycle model (F4)"
-          onClick={() => onConfigChange?.({ modelIdx: (modelIdx + 1) % MODELS.length })}
-        >{MODELS[modelIdx]?.display || "?"}</button>
+          onClick={() => onConfigChange?.({ modelIdx: (modelIdx + 1) % models.length })}
+        >{models[modelIdx]?.display || "?"}</button>
         <span className="tv-bottom-sep">|</span>
         <button
-          className={`bottom-pill tv-bottom-effort tv-bottom-effort--${EFFORTS[effortIdx] || "high"}`}
+          className={`bottom-pill tv-bottom-effort tv-bottom-effort--${efforts[effortIdx] || "high"}`}
           title="Click to cycle effort (F2)"
-          onClick={() => onConfigChange?.({ effortIdx: (effortIdx + 1) % EFFORTS.length })}
-        >{EFFORTS[effortIdx] || "high"}</button>
+          onClick={() => onConfigChange?.({ effortIdx: (effortIdx + 1) % efforts.length })}
+        >{efforts[effortIdx] || "high"}</button>
         <span className="tv-bottom-sep">|</span>
         <button
           className={`bottom-pill tv-bottom-perm tv-bottom-perm--${PERM_MODES[permModeIdx]?.sdk || "plan"}`}

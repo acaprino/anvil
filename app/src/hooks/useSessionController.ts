@@ -11,8 +11,8 @@
 import { useCallback, useDeferredValue, useEffect, useMemo, useReducer, useRef, useState } from "react";
 import { spawnAgent, resumeAgent, forkAgent, sendAgentMessage, killAgent, interruptAgent, respondPermission, respondAskUser, refreshCommands, runClaudeCommand, getAgentMessages, setAgentPermMode } from "./useAgentSession";
 import { open as shellOpen } from "@tauri-apps/plugin-shell";
-import { MODELS, EFFORTS, PERM_MODES } from "../types";
-import type { AgentEvent, Attachment, ChatMessage, PermissionSuggestion, SlashCommand, AgentInfoSDK } from "../types";
+import { PERM_MODES, DEFAULT_MODELS, DEFAULT_EFFORTS } from "../types";
+import type { AgentEvent, Attachment, ChatMessage, PermissionSuggestion, SlashCommand, AgentInfoSDK, ModelInfoSDK } from "../types";
 import { open } from "@tauri-apps/plugin-dialog";
 import { invoke } from "@tauri-apps/api/core";
 import { sanitizeInput } from "../utils/sanitizeInput";
@@ -108,6 +108,12 @@ export interface SessionController {
   agentTasks: import("../types").AgentTask[];
   sdkCommands: SlashCommand[];
   sdkAgents: AgentInfoSDK[];
+  /** Models reported by SDK — empty until first session connects */
+  sdkModels: ModelInfoSDK[];
+  /** Derived model list for UI (display + id), from SDK or fallback */
+  models: readonly { display: string; id: string }[];
+  /** Derived effort list for current model, from SDK or fallback */
+  efforts: readonly string[];
   hasUnresolvedPermission: boolean;
   // Streaming/thinking refs (read-only) + ticks for rendering outside virtualizer
   streamingTextRef: React.RefObject<string>;
@@ -151,6 +157,7 @@ export function useSessionController(props: SessionControllerProps): SessionCont
   const [stats, dispatchStats] = useReducer(statsReducer, INITIAL_STATS);
   const [sdkCommands, setSdkCommands] = useState<SlashCommand[]>([]);
   const [sdkAgents, setSdkAgents] = useState<AgentInfoSDK[]>([]);
+  const [sdkModels, setSdkModels] = useState<ModelInfoSDK[]>([]);
   const [droppedFiles, setDroppedFiles] = useState<string[]>([]);
   const messageQueueRef = useRef<string[]>([]);
   const [queueLength, setQueueLength] = useState(0);
@@ -205,8 +212,15 @@ export function useSessionController(props: SessionControllerProps): SessionCont
     setInputState("idle");
     let cancelled = false;
 
-    const modelId = MODELS[modelIdx]?.id || "";
-    const effortId = EFFORTS[effortIdx] || "high";
+    // Use SDK models/efforts if available, fallback to hardcoded defaults
+    const effectiveModels = sdkModels.length > 0
+      ? sdkModels.map(m => ({ display: m.displayName, id: m.value }))
+      : (DEFAULT_MODELS as readonly { display: string; id: string }[]);
+    const modelId = effectiveModels[modelIdx]?.id || "";
+    const effectiveEfforts = sdkModels.length > 0
+      ? (() => { const m = sdkModels.find(s => s.value === modelId); return m?.supportedEffortLevels?.length ? m.supportedEffortLevels : DEFAULT_EFFORTS; })()
+      : DEFAULT_EFFORTS;
+    const effortId = effectiveEfforts[effortIdx] || "high";
     const permMode = PERM_MODES[permModeIdx]?.sdk || "plan";
     permModeIdxRef.current = permModeIdx;
 
@@ -403,6 +417,7 @@ export function useSessionController(props: SessionControllerProps): SessionCont
       } else if (event.type === "commandsInit") {
         setSdkCommands(event.commands);
         setSdkAgents(event.agents);
+        if (event.models?.length) setSdkModels(event.models);
       } else if (event.type === "status") {
         if (event.status === "init" && event.sessionId) {
           sessionIdReportedRef.current = true;
@@ -759,10 +774,29 @@ export function useSessionController(props: SessionControllerProps): SessionCont
     return result;
   }, [messages]);
 
+  // Derive UI-friendly model/effort lists from SDK data or fallback to hardcoded defaults
+  const models = useMemo(() => {
+    if (sdkModels.length === 0) return DEFAULT_MODELS as readonly { display: string; id: string }[];
+    return sdkModels.map(m => ({ display: m.displayName, id: m.value }));
+  }, [sdkModels]);
+
+  const efforts = useMemo(() => {
+    if (sdkModels.length === 0) return DEFAULT_EFFORTS;
+    // Derive effort levels from the currently selected model (or union of all models)
+    const currentModel = sdkModels.find(m => m.value === (models[modelIdx]?.id || ""));
+    if (currentModel?.supportedEffortLevels?.length) return currentModel.supportedEffortLevels;
+    // Union of all supported effort levels across models
+    const allEfforts = new Set<string>();
+    for (const m of sdkModels) {
+      for (const e of m.supportedEffortLevels || []) allEfforts.add(e);
+    }
+    return allEfforts.size > 0 ? [...allEfforts] : (DEFAULT_EFFORTS as readonly string[]);
+  }, [sdkModels, models, modelIdx]);
+
   return {
     messages, displayItems, deferredMessages,
-    inputState, stats, agentTasks: agentTasksHook.tasks, sdkCommands, sdkAgents,
-    hasUnresolvedPermission,
+    inputState, stats, agentTasks: agentTasksHook.tasks, sdkCommands, sdkAgents, sdkModels,
+    models, efforts, hasUnresolvedPermission,
     queueLength, backgrounded,
     streamingTextRef: streaming.textRef, streamingIdRef: streaming.idRef, streamingTick: streaming.tick,
     thinkingTextRef: thinking.textRef, thinkingIdRef: thinking.idRef, thinkingTick: thinking.tick,

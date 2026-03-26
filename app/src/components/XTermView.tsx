@@ -14,7 +14,7 @@ import { invoke } from "@tauri-apps/api/core";
 import "@xterm/xterm/css/xterm.css";
 import "./TerminalView.css";
 
-import { MODELS, EFFORTS, PERM_MODES } from "../types";
+import { PERM_MODES } from "../types";
 import type { SessionViewProps } from "./SessionViewProps";
 import type { Theme, Attachment } from "../types";
 import { themeColorsToXterm, themeColorsToPalette } from "./terminal/themes";
@@ -44,6 +44,7 @@ export default memo(function XTermView(props: SessionViewProps) {
     queueLength, backgrounded,
     document: termDocument,
     projectPath,
+    models, efforts,
   } = ctrl;
 
   const themes = useThemes();
@@ -286,14 +287,14 @@ export default memo(function XTermView(props: SessionViewProps) {
         <button
           className="bottom-pill tv-bottom-model"
           title="Click to cycle model (F4)"
-          onClick={() => onConfigChange?.({ modelIdx: (modelIdx + 1) % MODELS.length })}
-        >{MODELS[modelIdx]?.display || "?"}</button>
+          onClick={() => onConfigChange?.({ modelIdx: (modelIdx + 1) % models.length })}
+        >{models[modelIdx]?.display || "?"}</button>
         <span className="tv-bottom-sep">|</span>
         <button
-          className={`bottom-pill tv-bottom-effort tv-bottom-effort--${EFFORTS[effortIdx] || "high"}`}
+          className={`bottom-pill tv-bottom-effort tv-bottom-effort--${efforts[effortIdx] || "high"}`}
           title="Click to cycle effort (F2)"
-          onClick={() => onConfigChange?.({ effortIdx: (effortIdx + 1) % EFFORTS.length })}
-        >{EFFORTS[effortIdx] || "high"}</button>
+          onClick={() => onConfigChange?.({ effortIdx: (effortIdx + 1) % efforts.length })}
+        >{efforts[effortIdx] || "high"}</button>
         <span className="tv-bottom-sep">|</span>
         <button
           className={`bottom-pill tv-bottom-perm tv-bottom-perm--${PERM_MODES[permModeIdx]?.sdk || "plan"}`}

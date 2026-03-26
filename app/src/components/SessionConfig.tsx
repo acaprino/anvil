@@ -1,5 +1,5 @@
 import { memo, useCallback, useRef, useEffect } from "react";
-import { Settings, MODELS, EFFORTS, PERM_MODES } from "../types";
+import { Settings, DEFAULT_MODELS as MODELS, DEFAULT_EFFORTS as EFFORTS, PERM_MODES } from "../types";
 import SegmentedControl from "./SegmentedControl";
 import "./SessionConfig.css";
 

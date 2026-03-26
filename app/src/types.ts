@@ -76,7 +76,8 @@ export interface UsageEntry {
 export type UsageData = Record<string, UsageEntry>;
 
 
-export const MODELS = [
+/** Fallback models when SDK hasn't reported yet */
+export const DEFAULT_MODELS = [
   { display: "sonnet", id: "claude-sonnet-4-6" },
   { display: "opus", id: "claude-opus-4-6" },
   { display: "haiku", id: "claude-haiku-4-5" },
@@ -84,7 +85,26 @@ export const MODELS = [
   { display: "opus [1M]", id: "claude-opus-4-6[1m]" },
 ] as const;
 
-export const EFFORTS = ["high", "medium", "low"] as const;
+/** @deprecated Use dynamic models from SDK context. Alias for backward compat. */
+export const MODELS = DEFAULT_MODELS;
+
+/** Fallback efforts when SDK hasn't reported yet */
+export const DEFAULT_EFFORTS: readonly string[] = ["high", "medium", "low"];
+
+/** @deprecated Use dynamic efforts from SDK context. Alias for backward compat. */
+export const EFFORTS = DEFAULT_EFFORTS;
+
+/** Model info as reported by the Agent SDK */
+export interface ModelInfoSDK {
+  value: string;
+  displayName: string;
+  description: string;
+  supportsEffort?: boolean;
+  supportedEffortLevels?: string[];
+  supportsAdaptiveThinking?: boolean;
+  supportsFastMode?: boolean;
+  supportsAutoMode?: boolean;
+}
 export const SORT_ORDERS = ["alpha", "last used", "most used"] as const;
 
 /** Permission modes — cycled via Tab on the project picker. */
@@ -198,7 +218,7 @@ export type AgentEvent =
   | { type: "todo"; todos: TodoItem[] }
   | { type: "autocomplete"; suggestions: string[]; seq: number }
   | { type: "rateLimit"; utilization: number }
-  | { type: "commandsInit"; commands: SlashCommand[]; agents: AgentInfoSDK[] }
+  | { type: "commandsInit"; commands: SlashCommand[]; agents: AgentInfoSDK[]; models?: ModelInfoSDK[] }
   | { type: "taskStarted"; taskId: string; description: string; taskType: string }
   | { type: "taskProgress"; taskId: string; description: string; totalTokens: number; toolUses: number; durationMs: number; lastToolName: string; summary: string }
   | { type: "taskNotification"; taskId: string; status: "completed" | "failed" | "stopped"; summary: string; totalTokens: number; toolUses: number; durationMs: number }

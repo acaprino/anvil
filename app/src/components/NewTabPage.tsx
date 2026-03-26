@@ -7,7 +7,7 @@ import InfoStrip from "./InfoStrip";
 import CreateProjectModal from "./modals/CreateProjectModal";
 import LabelProjectModal from "./modals/LabelProjectModal";
 import QuickLaunchModal from "./modals/QuickLaunchModal";
-import { ProjectInfo, MODELS, EFFORTS, SORT_ORDERS, PERM_MODES } from "../types";
+import { ProjectInfo, DEFAULT_MODELS as MODELS, DEFAULT_EFFORTS as EFFORTS, SORT_ORDERS, PERM_MODES } from "../types";
 import "./NewTabPage.css";
 
 interface NewTabPageProps {

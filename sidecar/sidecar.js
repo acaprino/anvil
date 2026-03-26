@@ -503,16 +503,17 @@ async function consumeQuery(tabId, q, sessionRef) {
                             session._sessionId = sid;
                             emit({ evt: "status", tabId, status: "init", model: "", sessionId: sid });
                         }
-                        // Fetch available commands and agents from the SDK
+                        // Fetch available commands, agents, and models from the SDK
                         try {
-                            const [commands, agents] = await Promise.all([
+                            const [commands, agents, models] = await Promise.all([
                                 q.supportedCommands(),
                                 q.supportedAgents(),
+                                q.supportedModels(),
                             ]);
-                            emit({ evt: "commands_init", tabId, commands, agents });
+                            emit({ evt: "commands_init", tabId, commands, agents, models });
                         }
                         catch (err) {
-                            log(`Failed to fetch commands/agents for ${tabId}:`, err.message);
+                            log(`Failed to fetch commands/agents/models for ${tabId}:`, err.message);
                         }
                     }
                     else if (msg.subtype === "status") {
@@ -792,19 +793,20 @@ async function handleRefreshCommands(cmd) {
     const sessionTabId = cmd.sessionTabId;
     const session = sessions.get(sessionTabId);
     if (!session?.query) {
-        emit({ evt: "commands", tabId: cmd.tabId, commands: [], agents: [] });
+        emit({ evt: "commands", tabId: cmd.tabId, commands: [], agents: [], models: [] });
         return;
     }
     try {
-        const [commands, agents] = await Promise.all([
+        const [commands, agents, models] = await Promise.all([
             session.query.supportedCommands(),
             session.query.supportedAgents(),
+            session.query.supportedModels(),
         ]);
-        emit({ evt: "commands", tabId: cmd.tabId, commands, agents });
+        emit({ evt: "commands", tabId: cmd.tabId, commands, agents, models });
     }
     catch (err) {
         log(`refreshCommands error for ${sessionTabId}:`, err.message);
-        emit({ evt: "commands", tabId: cmd.tabId, commands: [], agents: [] });
+        emit({ evt: "commands", tabId: cmd.tabId, commands: [], agents: [], models: [] });
     }
 }
 async function handleListSessions(cmd) {
