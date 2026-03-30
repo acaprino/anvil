@@ -1,4 +1,4 @@
-# Figtree -- Technical Documentation
+# Claude Code GUI -- Technical Documentation
 
 **Version:** 1.0.0
 **Platform:** Windows only
@@ -24,7 +24,7 @@
 
 ## 1. Project Overview
 
-Figtree is a Windows-only Tauri 2 desktop application for selecting and launching Claude Code Agent SDK sessions in a tabbed interface. Users select a project from a scanned directory list, choose a model and settings, then launch an interactive agent session rendered in a React-based dual-view architecture (chat view or terminal view).
+Claude Code GUI is a Windows-only Tauri 2 desktop application for selecting and launching Claude Code Agent SDK sessions in a tabbed interface. Users select a project from a scanned directory list, choose a model and settings, then launch an interactive agent session rendered in a React-based dual-view architecture (chat view or terminal view).
 
 ### Tech Stack
 
@@ -70,7 +70,7 @@ Figtree is a Windows-only Tauri 2 desktop application for selecting and launchin
 ### Prerequisites
 
 - **Windows 11** (or Windows 10)
-- **Node.js** (for frontend build and sidecar runtime -- resolved via PATH, `%LOCALAPPDATA%\figtree\node\`, or `%ProgramFiles%\nodejs\`)
+- **Node.js** (for frontend build and sidecar runtime -- resolved via PATH, `%LOCALAPPDATA%\claude-code-gui\node\`, or `%ProgramFiles%\nodejs\`)
 - **Rust toolchain** (for Tauri backend)
 - **Claude Agent SDK** -- installed automatically by the sidecar (`npm install --production` in `sidecar/`)
 
@@ -106,7 +106,7 @@ The app launches a single frameless window:
 | Property | Value |
 |----------|-------|
 | Label | `main` |
-| Title | `Figtree` |
+| Title | `Claude Code GUI` |
 | Default size | 1200 x 800 |
 | Minimum size | 800 x 500 |
 | Decorations | `false` (custom title bar) |
@@ -227,7 +227,7 @@ graph TB
 | `usage_stats` | `usage_stats.rs` | Token usage statistics from Claude Code JSONL logs |
 | `logging` | `logging.rs` | File + stderr logging with macros |
 | `watcher` | `watcher.rs` | Filesystem watcher for project directory changes |
-| `marketplace` | `marketplace.rs` | Figtree marketplace sync |
+| `marketplace` | `marketplace.rs` | Claude Code GUI marketplace sync |
 | `autocomplete` | `autocomplete.rs` | File path autocomplete for agent input |
 
 ### main.rs
@@ -239,7 +239,7 @@ Entry point. Hides the console window in release builds via `#![cfg_attr(not(deb
 **Setup phase:**
 1. Loads initial settings.
 2. Creates a `ProjectWatcher` for filesystem monitoring.
-3. Syncs the figtree-toolset marketplace (synchronous to avoid race conditions).
+3. Syncs the marketplace (synchronous to avoid race conditions).
 4. Auto-grants clipboard read permission via WebView2 COM API to suppress the permission dialog.
 
 ### SidecarManager
@@ -262,7 +262,7 @@ The `SidecarManager` manages a single long-lived Node.js child process that wrap
 
 **Initialization** (`SidecarManager::new()`):
 
-1. Finds Node.js via `find_node()`: checks PATH, then `%LOCALAPPDATA%\figtree\node\node.exe`, then `%ProgramFiles%\nodejs\node.exe`.
+1. Finds Node.js via `find_node()`: checks PATH, then `%LOCALAPPDATA%\claude-code-gui\node\node.exe`, then `%ProgramFiles%\nodejs\node.exe`.
 2. Ensures sidecar dependencies are installed (`ensure_deps()`): checks for `node_modules` directory, runs `npm install --production` if missing.
 3. Resolves the sidecar directory (`resolve_sidecar_dir()`): production mode looks for `sidecar/` next to the exe; dev mode traverses up from `target/debug/` to find the project root.
 4. Starts the sidecar process (`start_sidecar()`): spawns `node sidecar.js` with `CREATE_NO_WINDOW` flag, then creates a Win32 Job Object with `JOB_OBJECT_LIMIT_KILL_ON_JOB_CLOSE` and assigns the child process to it. This ensures all descendant processes (Agent SDK subprocesses) are terminated when the job handle is closed.
@@ -270,7 +270,7 @@ The `SidecarManager` manages a single long-lived Node.js child process that wrap
 **Reader threads:**
 
 - **stdout reader:** Reads JSON-lines from sidecar stdout using `BufReader`. Deserializes each line into a `SidecarEvent` (tagged enum with `#[serde(tag = "evt")]`), converts to `AgentEvent`, and sends to the matching tab's Tauri Channel. Handles special `sessions`, `messages`, and `commands` events via oneshot channels. Removes the channel on `exit` events.
-- **stderr reader:** Logs all sidecar stderr output to the Figtree log file.
+- **stderr reader:** Logs all sidecar stderr output to the Claude Code GUI log file.
 
 **AgentEvent enum** (`sidecar.rs`):
 
@@ -363,13 +363,13 @@ Validates the project name (no path separators, no `..`, no ANSI escape sequence
 
 **Source:** `app/src-tauri/src/projects.rs`
 
-All data files are stored in `dirs::data_local_dir() / "figtree"` (typically `%LOCALAPPDATA%\figtree`).
+All data files are stored in `dirs::data_local_dir() / "claude-code-gui"` (typically `%LOCALAPPDATA%\claude-code-gui`).
 
 | File | Path | Purpose |
 |------|------|---------|
-| Settings | `figtree-settings.json` | User preferences |
-| Settings backup | `figtree-settings.json.bak` | Previous settings |
-| Usage data | `figtree-usage.json` | Project usage tracking |
+| Settings | `claude-code-gui-settings.json` | User preferences |
+| Settings backup | `claude-code-gui-settings.json.bak` | Previous settings |
+| Usage data | `claude-code-gui-usage.json` | Project usage tracking |
 | Session data | `figtree-session.json` | Tab restore state |
 | Log file | `figtree.log` | Application log (next to exe) |
 

@@ -1,5 +1,5 @@
 /**
- * Icons — single-file icon set for Figtree.
+ * Icons — single-file icon set for Claude Code GUI.
  * All icons use currentColor, size defaults to 16×16, and accept standard SVG props.
  */
 import type { SVGProps } from "react";

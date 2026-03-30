@@ -1,8 +1,8 @@
 <p align="center">
-  <img src="app/public/icon.png" width="120" alt="Figtree">
+  <img src="app/public/icon.png" width="120" alt="Claude Code GUI">
 </p>
 
-<h1 align="center">Figtree</h1>
+<h1 align="center">Claude Code GUI</h1>
 
 <p align="center">
   <strong>The first dedicated desktop client for the Claude Agent SDK.</strong><br>
@@ -10,7 +10,7 @@
 </p>
 
 <p align="center">
-  <a href="https://github.com/acaprino/figtree/stargazers"><img src="https://img.shields.io/github/stars/acaprino/figtree?style=flat-square" alt="Stars"></a>
+  <a href="https://github.com/acaprino/claude-code-gui/stargazers"><img src="https://img.shields.io/github/stars/acaprino/claude-code-gui?style=flat-square" alt="Stars"></a>
   <img src="https://img.shields.io/badge/version-1.0.0-blue?style=flat-square" alt="Version">
   <img src="https://img.shields.io/badge/platform-Windows-0078D6?style=flat-square&logo=windows" alt="Platform">
   <img src="https://img.shields.io/badge/tauri-v2-24C8D8?style=flat-square&logo=tauri" alt="Tauri 2">
@@ -19,17 +19,17 @@
 
 <!-- TODO: Add hero screenshot here once captured
 <p align="center">
-  <img src="docs/screenshots/hero.png" width="800" alt="Figtree - tabbed interface with project picker">
+  <img src="docs/screenshots/hero.png" width="800" alt="Claude Code GUI - tabbed interface with project picker">
 </p>
 -->
 
 ---
 
-## Why Figtree?
+## Why Claude Code GUI?
 
 IDEs like Cursor, Windsurf, and Trae offer AI features &mdash; but they own the auth, the tokens, and the model access. If you're paying for Claude Max, you're paying twice. If you want the full Agent SDK, you're stuck in a terminal.
 
-Figtree is the missing piece: **a native desktop app built entirely on the Claude Agent SDK**, using your own Claude account. No proprietary tokens, no API keys, no IDE lock-in. Just your projects and your agents, in a dedicated interface designed for multi-session workflows.
+Claude Code GUI is the missing piece: **a native desktop app built entirely on the Claude Agent SDK**, using your own Claude account. No proprietary tokens, no API keys, no IDE lock-in. Just your projects and your agents, in a dedicated interface designed for multi-session workflows.
 
 - **Your tokens, your account** &mdash; authenticates directly with your Claude credentials, no middleman
 - **Not an IDE plugin** &mdash; a purpose-built app for Claude Agent sessions, not an afterthought bolted onto an editor
@@ -51,7 +51,7 @@ Run multiple concurrent AI coding sessions side by side. Tabs light up when agen
 
 ### Project Discovery
 
-Figtree scans your project directories automatically. You see every project at a glance &mdash; which branch it's on, whether it has uncommitted changes, whether it has a `CLAUDE.md`. Add labels, sort by name or usage, type to filter. Create new projects or quick-launch any directory with F10.
+Claude Code GUI scans your project directories automatically. You see every project at a glance &mdash; which branch it's on, whether it has uncommitted changes, whether it has a `CLAUDE.md`. Add labels, sort by name or usage, type to filter. Create new projects or quick-launch any directory with F10.
 
 <!-- TODO: screenshot -->
 
@@ -63,7 +63,7 @@ Switch between a **rich chat view** with markdown rendering, syntax highlighting
 
 ### Session Persistence
 
-Close Figtree, reopen it tomorrow. Your tabs and sessions are exactly where you left them. Resume or fork past sessions from the session panel (Ctrl+Shift+S). Browse all history in the session browser (Ctrl+Shift+H). Dead sessions are cleaned up automatically &mdash; no orphaned processes.
+Close the app, reopen it tomorrow. Your tabs and sessions are exactly where you left them. Resume or fork past sessions from the session panel (Ctrl+Shift+S). Browse all history in the session browser (Ctrl+Shift+H). Dead sessions are cleaned up automatically &mdash; no orphaned processes.
 
 ### Keyboard-First
 
@@ -177,8 +177,8 @@ Custom themes can be added by placing a JSON file in `data/themes/`.
 ### Build & Run
 
 ```bash
-git clone https://github.com/acaprino/figtree.git
-cd figtree/app
+git clone https://github.com/acaprino/claude-code-gui.git
+cd claude-code-gui/app
 
 npm install
 
@@ -242,7 +242,7 @@ For detailed architecture, module reference, and IPC protocol, see [`docs/TECHNI
 
 ## Contributing
 
-Contributions welcome. [Open an issue](https://github.com/acaprino/figtree/issues) first to discuss what you'd like to change.
+Contributions welcome. [Open an issue](https://github.com/acaprino/claude-code-gui/issues) first to discuss what you'd like to change.
 
 ---
 

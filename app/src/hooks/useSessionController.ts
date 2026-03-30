@@ -685,10 +685,10 @@ export function useSessionController(props: SessionControllerProps): SessionCont
         setInputState("processing");
         break;
       case "/theme":
-        window.dispatchEvent(new CustomEvent("figtree:open-settings"));
+        window.dispatchEvent(new CustomEvent("ccgui:open-settings"));
         break;
       case "/sessions":
-        window.dispatchEvent(new CustomEvent("figtree:open-sessions"));
+        window.dispatchEvent(new CustomEvent("ccgui:open-sessions"));
         break;
       case "/login":
       case "/logout":

@@ -2,7 +2,7 @@
 setlocal
 
 echo ============================================
-echo   Figtree - Production Build (full optimize)
+echo   Claude Code GUI - Production Build (full optimize)
 echo ============================================
 echo.
 
@@ -45,11 +45,11 @@ if exist "%DIST_DIR%" rd /s /q "%DIST_DIR%"
 mkdir "%DIST_DIR%"
 
 :: Copy standalone exe
-if exist "%RELEASE_DIR%\figtree.exe" (
-    copy /Y "%RELEASE_DIR%\figtree.exe" "%DIST_DIR%\" >nul
-    echo   - figtree.exe
+if exist "%RELEASE_DIR%\claude-code-gui.exe" (
+    copy /Y "%RELEASE_DIR%\claude-code-gui.exe" "%DIST_DIR%\" >nul
+    echo   - claude-code-gui.exe
 ) else (
-    echo ERROR: figtree.exe not found in %RELEASE_DIR%
+    echo ERROR: claude-code-gui.exe not found in %RELEASE_DIR%
     exit /b 1
 )
 

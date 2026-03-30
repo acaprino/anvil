@@ -1,4 +1,4 @@
-// Figtree Sidecar — bridges Rust backend with @anthropic-ai/claude-agent-sdk
+// Claude Code GUI Sidecar — bridges Rust backend with @anthropic-ai/claude-agent-sdk
 // Protocol: JSON-lines over stdin (commands) / stdout (events) / stderr (logs)
 import { query, listSessions, getSessionMessages, } from "@anthropic-ai/claude-agent-sdk";
 import Anthropic from "@anthropic-ai/sdk";
@@ -145,7 +145,7 @@ async function handleCreate(cmd) {
         options.permissionMode = permState.mode;
     }
     // else: no explicit permissionMode — SDK uses its default
-    // Always register canUseTool to route permission decisions through Figtree UI.
+    // Always register canUseTool to route permission decisions through Claude Code GUI.
     // For bypassPermissions, auto-allow everything without prompting.
     // For acceptEdits, auto-allow file-editing tools and prompt for the rest.
     // For plan/default, prompt for everything.
@@ -226,7 +226,7 @@ async function handleCreate(cmd) {
     if (plugins && plugins.length > 0) {
         options.plugins = plugins.map(p => ({ type: 'local', path: p }));
     }
-    // Intercept AskUserQuestion tool to route to Figtree UI
+    // Intercept AskUserQuestion tool to route to Claude Code GUI
     options.hooks = {
         ...(options.hooks || {}),
         PreToolUse: [
@@ -669,7 +669,7 @@ function handleAskUserResponse(cmd) {
     // with the user's answers so Claude sees them as if the tool succeeded.
     resolve({
         behavior: "deny",
-        message: `User answered the questions via Figtree UI:\n${answerLines.join("\n")}`,
+        message: `User answered the questions via Claude Code GUI:\n${answerLines.join("\n")}`,
     });
 }
 // Guard against re-entrant interrupts (rapid Ctrl+C)
@@ -1061,5 +1061,5 @@ process.on("unhandledRejection", (reason) => {
         process.exit(1);
     }
 });
-log("Figtree sidecar started");
+log("Claude Code GUI sidecar started");
 emit({ evt: "ready", tabId: "_control" });

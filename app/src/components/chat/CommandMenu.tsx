@@ -123,7 +123,7 @@ export default memo(function CommandMenu({ filter, sdkCommands = [], onSelect, o
         <>
           <div className="command-section-header">
             <span className="rule" />
-            <span>Figtree</span>
+            <span>Claude Code GUI</span>
             <span className="rule" />
           </div>
           {filteredLocal.map((cmd, i) => (

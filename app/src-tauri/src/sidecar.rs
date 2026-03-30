@@ -301,7 +301,7 @@ impl SidecarManager {
             .map_err(|e| format!("Failed to spawn sidecar: {e}"))?;
 
         // Create a Win32 Job Object so that all child processes (agent SDK
-        // subprocesses) are killed when the job is closed / Figtree exits.
+        // subprocesses) are killed when the job is closed / Claude Code GUI exits.
         match create_job_for_child(&child) {
             Ok(job) => {
                 log_info!("sidecar: process assigned to job object");
@@ -670,10 +670,10 @@ fn find_node() -> Option<String> {
         return Some(path.to_string_lossy().to_string());
     }
 
-    // Try %LOCALAPPDATA%\figtree\node\node.exe
+    // Try %LOCALAPPDATA%\claude-code-gui\node\node.exe
     if let Ok(local) = std::env::var("LOCALAPPDATA") {
         let custom = std::path::PathBuf::from(&local)
-            .join("figtree")
+            .join("claude-code-gui")
             .join("node")
             .join("node.exe");
         if custom.exists() {

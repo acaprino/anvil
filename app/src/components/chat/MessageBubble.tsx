@@ -55,7 +55,7 @@ SyntaxHighlighter.registerLanguage("yaml", langYaml);
 SyntaxHighlighter.registerLanguage("yml", langYaml);
 
 /** Build a syntax theme from CSS custom properties (read at render time). */
-function getFigtreeTheme(): Record<string, React.CSSProperties> {
+function getAppTheme(): Record<string, React.CSSProperties> {
   const s = getComputedStyle(document.documentElement);
   const v = (name: string) => s.getPropertyValue(name).trim();
   return {
@@ -84,8 +84,8 @@ function getFigtreeTheme(): Record<string, React.CSSProperties> {
 }
 
 let cachedTheme: Record<string, React.CSSProperties> | null = null;
-function figtreeTheme(): Record<string, React.CSSProperties> {
-  if (!cachedTheme) cachedTheme = getFigtreeTheme();
+function appTheme(): Record<string, React.CSSProperties> {
+  if (!cachedTheme) cachedTheme = getAppTheme();
   return cachedTheme;
 }
 // Invalidate on theme change (CSS variable mutation) — debounced via rAF to coalesce multiple style changes
@@ -146,7 +146,7 @@ const CodeBlock = ({ className, children }: { className?: string; children?: Rea
       </div>
       <SyntaxHighlighter
         language={match[1]}
-        style={figtreeTheme()}
+        style={appTheme()}
         showLineNumbers={lineCount > 5}
         customStyle={{
           margin: 0,

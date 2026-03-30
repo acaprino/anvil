@@ -22,7 +22,7 @@ fn marketplace_dir() -> PathBuf {
 
 /// Return absolute paths to every plugin directory bundled under data/marketplace/plugins/.
 /// These paths are passed to the Agent SDK's `plugins` option so that skills, agents,
-/// and commands are available exclusively within Figtree sessions.
+/// and commands are available exclusively within Claude Code GUI sessions.
 pub fn get_plugin_paths() -> Vec<String> {
     let plugins_dir = marketplace_dir().join("plugins");
     if !plugins_dir.is_dir() {
