@@ -6,6 +6,9 @@ export const PRUNE_THRESHOLD = 600;
 /** Messages kept in full (most recent) */
 export const KEEP_RECENT = 400;
 
+// Invariant: KEEP_RECENT must be less than PRUNE_THRESHOLD to prevent infinite pruning loops
+if (KEEP_RECENT >= PRUNE_THRESHOLD) throw new Error(`pruneMessages: KEEP_RECENT (${KEEP_RECENT}) must be < PRUNE_THRESHOLD (${PRUNE_THRESHOLD})`);
+
 /** Max characters for tool output in pruned messages */
 const PRUNED_OUTPUT_LIMIT = 200;
 

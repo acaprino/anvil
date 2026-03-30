@@ -10,10 +10,13 @@ export function sanitizeFontName(name: string): string {
 export function sanitizeColor(value: string): string {
   if (/^#[0-9a-fA-F]{3,8}$/.test(value)) return value;
   if (/^(rgb|hsl)a?\([^;{}()]*\)$/.test(value)) return value;
-  if (/^color-mix\([^;{}]*\)$/.test(value)) return value;
+  if (/^color-mix\([^;{}]*\)$/.test(value) && !/url\s*\(/i.test(value)) return value;
   if (/^var\(--[a-zA-Z0-9-]+\)$/.test(value)) return value;
   return "#000000";
 }
+
+/** Incremented on every theme application — consumers can compare to detect changes */
+export let themeVersion = 0;
 
 export function applyTheme(themes: Theme[], themeIdx: number): void {
   const theme = themes[themeIdx] ?? themes[0];
@@ -77,6 +80,7 @@ export function applyTheme(themes: Theme[], themeIdx: number): void {
   const isRetro = !!theme.retro;
   root.classList.toggle("retro", isRetro);
   invoke("set_window_corner_preference", { retro: isRetro }).catch((err) => console.debug("[themes] set_window_corner_preference failed:", err));
+  themeVersion++;
 }
 
 function isLightColor(hex: string): boolean {

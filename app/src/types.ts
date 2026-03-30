@@ -86,14 +86,8 @@ export const DEFAULT_MODELS = [
   { display: "opus [1M]", id: "claude-opus-4-6[1m]" },
 ] as const;
 
-/** @deprecated Use dynamic models from SDK context. Alias for backward compat. */
-export const MODELS = DEFAULT_MODELS;
-
 /** Fallback efforts when SDK hasn't reported yet */
 export const DEFAULT_EFFORTS: readonly string[] = ["high", "medium", "low", "max"];
-
-/** @deprecated Use dynamic efforts from SDK context. Alias for backward compat. */
-export const EFFORTS = DEFAULT_EFFORTS;
 
 /** Model info as reported by the Agent SDK */
 export interface ModelInfoSDK {

@@ -45,29 +45,60 @@ export function useTabManager() {
   const activeTabIdRef = useRef(activeTabId);
   useEffect(() => { activeTabIdRef.current = activeTabId; }, [activeTabId]);
 
-  // Restore session on mount
+  // Restore session on mount — tries Rust backend first, falls back to localStorage backup
   useEffect(() => {
-    invoke<any>("load_session").then((session) => {
-      if (session && Array.isArray(session.tabs) && session.tabs.length > 0) {
-        const restoredTabs = session.tabs
-          .filter((s: any) => s && typeof s.projectPath === "string" && s.projectPath.length > 0)
-          .map((s: any) => createRestoredTab({
-            projectPath: s.projectPath,
-            projectName: typeof s.projectName === "string" ? s.projectName : "Terminal",
-            modelIdx: typeof s.modelIdx === "number" ? s.modelIdx : 0,
-            effortIdx: typeof s.effortIdx === "number" ? s.effortIdx : 0,
-            permModeIdx: typeof s.permModeIdx === "number" ? s.permModeIdx : (s.skipPerms === true ? PERM_MODES.findIndex(m => m.sdk === "bypassPermissions") : 0),
-            temporary: s.temporary === true,
-          }));
-        if (restoredTabs.length > 0) {
-          const newTab = createNewTab();
-          setTabs([...restoredTabs, newTab]);
-          setActiveTabId(restoredTabs[0].id);
-        }
+    const restoreFromSaved = (savedTabs: SavedTab[]) => {
+      const restoredTabs = savedTabs.map((s) => createRestoredTab(s));
+      if (restoredTabs.length > 0) {
+        const newTab = createNewTab();
+        setTabs([...restoredTabs, newTab]);
+        setActiveTabId(restoredTabs[0].id);
       }
+    };
+
+    const parseRawTabs = (items: any[]): SavedTab[] =>
+      items
+        .filter((s: any) => s && typeof s.projectPath === "string" && s.projectPath.length > 0)
+        .map((s: any) => ({
+          projectPath: s.projectPath,
+          projectName: typeof s.projectName === "string" ? s.projectName : "Terminal",
+          modelIdx: typeof s.modelIdx === "number" ? s.modelIdx : 0,
+          effortIdx: typeof s.effortIdx === "number" ? s.effortIdx : 0,
+          permModeIdx: typeof s.permModeIdx === "number" ? s.permModeIdx : (s.skipPerms === true ? PERM_MODES.findIndex(m => m.sdk === "bypassPermissions") : 0),
+          temporary: s.temporary === true,
+        }));
+
+    invoke<{ tabs?: unknown[] }>("load_session").then((session) => {
+      if (session && Array.isArray(session.tabs) && session.tabs.length > 0) {
+        restoreFromSaved(parseRawTabs(session.tabs));
+      } else {
+        // Fallback: check localStorage backup (written synchronously during beforeunload)
+        try {
+          const backup = localStorage.getItem("ccg-session-backup");
+          if (backup) {
+            const parsed = JSON.parse(backup);
+            if (Array.isArray(parsed) && parsed.length > 0) {
+              restoreFromSaved(parseRawTabs(parsed));
+            }
+          }
+        } catch { /* corrupt backup — ignore */ }
+      }
+      // Clear backup after successful restore to avoid stale data
+      try { localStorage.removeItem("ccg-session-backup"); } catch { /* ignore */ }
       setSessionLoaded(true);
     }).catch((err) => {
       console.debug("[tabs] session restore failed:", err);
+      // Last resort: try localStorage backup
+      try {
+        const backup = localStorage.getItem("ccg-session-backup");
+        if (backup) {
+          const parsed = JSON.parse(backup);
+          if (Array.isArray(parsed) && parsed.length > 0) {
+            restoreFromSaved(parseRawTabs(parsed));
+          }
+        }
+        localStorage.removeItem("ccg-session-backup");
+      } catch { /* corrupt backup — ignore */ }
       setSessionLoaded(true);
     });
   }, []);
@@ -119,12 +150,18 @@ export function useTabManager() {
     };
   }, [saveableState, sessionLoaded]);
 
-  // Flush pending save on window close so tab state is never lost
+  // Flush pending save on window close so tab state is never lost.
+  // Uses localStorage as a synchronous backup since async invoke() may not
+  // complete before the WebView shuts down during beforeunload.
   useEffect(() => {
     const flushSave = () => {
       if (!sessionLoadedRef.current) return;
       if (saveTimerRef.current) clearTimeout(saveTimerRef.current);
-      const terminalTabs: SavedTab[] = JSON.parse(saveableStateRef.current);
+      const raw = saveableStateRef.current;
+      // Synchronous localStorage backup — guaranteed to persist
+      try { localStorage.setItem("ccg-session-backup", raw); } catch { /* quota exceeded — ignore */ }
+      // Async IPC — may or may not complete before shutdown
+      const terminalTabs: SavedTab[] = JSON.parse(raw);
       invoke("save_session", { session: { tabs: terminalTabs } }).catch((err) => console.debug("[tabs] beforeunload session save failed:", err));
     };
     window.addEventListener("beforeunload", flushSave);

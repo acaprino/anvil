@@ -20,5 +20,7 @@ export function sanitizeInput(text: string): string {
     // Ellipsis → ...
     .replace(/\u2026/g, "...")
     // Zero-width characters (ZWSP, ZWNJ, ZWJ, BOM)
-    .replace(/[\u200B\u200C\u200D\uFEFF]/g, "");
+    .replace(/[\u200B\u200C\u200D\uFEFF]/g, "")
+    // Bidirectional override characters (Trojan Source mitigation)
+    .replace(/[\u202A-\u202E\u2066-\u2069\u200E\u200F\u061C]/g, "");
 }

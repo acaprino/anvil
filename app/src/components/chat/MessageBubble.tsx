@@ -1,4 +1,5 @@
 import { memo, useState, useRef, useEffect } from "react";
+import { themeVersion } from "../../themes";
 import ReactMarkdown from "react-markdown";
 import remarkGfm from "remark-gfm";
 import { PrismLight as SyntaxHighlighter } from "react-syntax-highlighter";
@@ -84,21 +85,14 @@ function getAppTheme(): Record<string, React.CSSProperties> {
 }
 
 let cachedTheme: Record<string, React.CSSProperties> | null = null;
+let cachedAtVersion = -1;
 function appTheme(): Record<string, React.CSSProperties> {
-  if (!cachedTheme) cachedTheme = getAppTheme();
+  if (!cachedTheme || cachedAtVersion !== themeVersion) {
+    cachedTheme = getAppTheme();
+    cachedAtVersion = themeVersion;
+  }
   return cachedTheme;
 }
-// Invalidate on theme change (CSS variable mutation) — debounced via rAF to coalesce multiple style changes
-let invalidationScheduled = false;
-const observer = typeof MutationObserver !== "undefined"
-  ? new MutationObserver(() => {
-      if (!invalidationScheduled) {
-        invalidationScheduled = true;
-        requestAnimationFrame(() => { cachedTheme = null; invalidationScheduled = false; });
-      }
-    })
-  : null;
-observer?.observe(document.documentElement, { attributes: true, attributeFilter: ["style"] });
 
 interface Props {
   text: string;

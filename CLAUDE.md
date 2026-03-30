@@ -15,14 +15,15 @@ A Windows-only Tauri 2 desktop app for selecting and launching Claude Code Agent
 - **Backend**: Rust + Tauri 2 (in `app/src-tauri/`)
 - **Sidecar**: Node.js process running Agent SDK, bridged via JSON-RPC (in `sidecar/`)
 - **Chat UI**: React chat interface with react-markdown, react-syntax-highlighter, remark-gfm for rendering structured agent messages
-- **Themes**: 10 dark themes (Catppuccin Mocha default), selectable via Ctrl+, settings
+- **Themes**: 30 themes (dark + light variants, Catppuccin Mocha default), selectable via Ctrl+, settings
 
 ## Key Paths
 
-- `app/src/components/` - TabBar, TabSidebar, TitleBar, ChatView, ProjectList, InfoStrip, SessionConfig, NewTabPage, AboutPage, UsagePage, SystemPromptPage, SessionBrowser, SessionPanel, Modal, ErrorBoundary, AsciiLogo, FolderTree, SegmentedControl, ShortcutsOverlay, GsdPrimitives
+- `app/src/components/` - TabBar, TabSidebar, TitleBar, ChatView, ProjectList, InfoStrip, SessionConfig, NewTabPage, AboutPage, UsagePage, SystemPromptPage, SessionBrowser, SessionPanel, Modal, ErrorBoundary, AsciiLogo, FolderTree, SegmentedControl, ShortcutsOverlay, GsdPrimitives, XTermView, SessionViewProps
 - `app/src/components/chat/` - ChatInput, MessageBubble, ToolCard, PermissionCard, ThinkingBlock, ThinkingIndicator, ThinkingPanel, ResultBar, RightSidebar, MinimapPanel, BookmarkPanel, TodoPanel, AttachmentChip, CommandMenu, MentionMenu
-- `app/src/components/modals/` - SettingsModal, CreateProjectModal, LabelProjectModal, QuickLaunchModal
-- `app/src/hooks/` - useTabManager, useProjects, useAgentSession
+- `app/src/components/modals/` - CreateProjectModal, LabelProjectModal, QuickLaunchModal
+- `app/src/components/terminal/` - TerminalDocument, TerminalRenderer, InputManager, AnsiUtils, blocks/, themes
+- `app/src/hooks/` - useTabManager, useProjects, useAgentSession, useSessionController, useBufferedText, useAgentTasks
 - `app/src/utils/sanitizeInput.ts` - Input sanitization
 - `app/src/contexts/ProjectsContext.tsx` - Shared project state
 - `app/src/themes.ts` - Theme application to CSS variables
@@ -56,7 +57,7 @@ sonnet / opus / haiku / sonnet [1M] / opus [1M]
 
 ### Project Picker (NewTabPage active, no modal open)
 - **Tab**: Cycle permission mode (plan/accept edits/skip all)
-- **F2**: Cycle effort level (high/medium/low)
+- **F2**: Cycle effort level (max/high/medium/low)
 - **F3**: Cycle sort order (alpha/last used/most used)
 - **F4**: Cycle model
 - **F5**: Create new project
@@ -98,7 +99,6 @@ CSS custom properties in `App.css` `:root`:
 - Most components use `React.memo` for re-render control.
 - `hasNewOutput` updates are guarded — the tab array is only recreated once per new-output burst, not on every chunk.
 - MinimapPanel uses incremental canvas rendering with cached theme colors, separating viewport updates from full redraws.
-- `input_style` setting supports "chat" (default) and "terminal" input modes.
 
 ### CSS Architecture
 - All colors use `color-mix()` with CSS variables for theme adaptability — no hardcoded rgba values.

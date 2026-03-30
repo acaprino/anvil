@@ -5,7 +5,7 @@ import { open as shellOpen } from "@tauri-apps/plugin-shell";
 const PATH_RE = /(?:[A-Za-z]:[/\\])[\w./\\@-]+/g;
 
 // Block executable/script extensions from being opened via shellOpen
-const DANGEROUS_EXT = /\.(exe|bat|cmd|com|ps1|vbs|vbe|js|jse|wsf|wsh|msi|scr|pif|hta|cpl|inf|reg|lnk)$/i;
+const DANGEROUS_EXT = /\.(exe|bat|cmd|com|ps1|vbs|vbe|js|jse|wsf|wsh|msi|scr|pif|hta|cpl|inf|reg|lnk|url|appref-ms|application|settingcontent-ms)$/i;
 
 // Block paths with traversal components
 const HAS_TRAVERSAL = /(?:^|[/\\])\.\.[/\\]/;

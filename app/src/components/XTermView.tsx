@@ -53,6 +53,8 @@ export default memo(function XTermView(props: SessionViewProps) {
   const { settings } = useProjectsContext();
   const themeIdx = settings?.theme_idx ?? 1;
   const currentTheme: Theme | undefined = themes[themeIdx] ?? themes[0];
+  const currentThemeRef = useRef(currentTheme);
+  currentThemeRef.current = currentTheme;
 
   const [sidebarOpen, setSidebarOpen] = useState(true);
 
@@ -62,8 +64,11 @@ export default memo(function XTermView(props: SessionViewProps) {
   const fitAddonRef = useRef<FitAddon | null>(null);
   const rendererRef = useRef<TerminalRenderer | null>(null);
   const inputManagerRef = useRef<InputManager | null>(null);
+  const webglAddonRef = useRef<WebglAddon | null>(null);
   const inputStateRef = useRef(inputState);
   inputStateRef.current = inputState;
+  const isActiveRef = useRef(isActive);
+  isActiveRef.current = isActive;
 
   // Stable callback refs to avoid stale closures in InputManager
   const handleSubmitRef = useRef(handleSubmit);
@@ -79,10 +84,11 @@ export default memo(function XTermView(props: SessionViewProps) {
   useEffect(() => {
     if (!containerRef.current) return;
 
-    const fontFamily = currentTheme?.termFont
-      ? `"${currentTheme.termFont}", "Consolas", monospace`
+    const theme = currentThemeRef.current;
+    const fontFamily = theme?.termFont
+      ? `"${theme.termFont}", "Consolas", monospace`
       : '"Consolas", monospace';
-    const fontSize = currentTheme?.termFontSize || 14;
+    const fontSize = theme?.termFontSize || 14;
 
     const term = new Terminal({
       cursorBlink: true,
@@ -92,7 +98,7 @@ export default memo(function XTermView(props: SessionViewProps) {
       lineHeight: 1.2,
       scrollback: 10000,
       allowProposedApi: true,
-      theme: currentTheme ? themeColorsToXterm(currentTheme.colors) : undefined,
+      theme: theme ? themeColorsToXterm(theme.colors) : undefined,
     });
 
     const fitAddon = new FitAddon();
@@ -108,13 +114,16 @@ export default memo(function XTermView(props: SessionViewProps) {
     term.open(containerRef.current);
     fitAddon.fit();
 
-    // WebGL addon — try/catch for GPU fallback
-    try {
-      const webglAddon = new WebglAddon();
-      webglAddon.onContextLoss(() => webglAddon.dispose());
-      term.loadAddon(webglAddon);
-    } catch {
-      console.warn("XTermView: WebGL addon failed, using canvas renderer");
+    // WebGL addon — only load for active tab to avoid context exhaustion (limit ~16)
+    if (isActiveRef.current) {
+      try {
+        const webglAddon = new WebglAddon();
+        webglAddon.onContextLoss(() => { webglAddon.dispose(); webglAddonRef.current = null; });
+        term.loadAddon(webglAddon);
+        webglAddonRef.current = webglAddon;
+      } catch {
+        console.warn("XTermView: WebGL addon failed, using canvas renderer");
+      }
     }
 
     termRef.current = term;
@@ -190,6 +199,7 @@ export default memo(function XTermView(props: SessionViewProps) {
       inputManagerRef.current = null;
       renderer.dispose();
       rendererRef.current = null;
+      if (webglAddonRef.current) { webglAddonRef.current.dispose(); webglAddonRef.current = null; }
       term.dispose();
       termRef.current = null;
       fitAddonRef.current = null;
@@ -244,6 +254,25 @@ export default memo(function XTermView(props: SessionViewProps) {
 
   // ── Sidebar toggle ──
   const toggleSidebar = useCallback(() => setSidebarOpen(prev => !prev), []);
+
+  // ── WebGL addon lifecycle: load when active, dispose when inactive to prevent context exhaustion ──
+  useEffect(() => {
+    const term = termRef.current;
+    if (!term) return;
+    if (isActive && !webglAddonRef.current) {
+      try {
+        const webglAddon = new WebglAddon();
+        webglAddon.onContextLoss(() => { webglAddon.dispose(); webglAddonRef.current = null; });
+        term.loadAddon(webglAddon);
+        webglAddonRef.current = webglAddon;
+      } catch {
+        // canvas2d fallback is fine
+      }
+    } else if (!isActive && webglAddonRef.current) {
+      webglAddonRef.current.dispose();
+      webglAddonRef.current = null;
+    }
+  }, [isActive]);
 
   // ── Auto-focus xterm when tab becomes active ──
   useEffect(() => {

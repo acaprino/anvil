@@ -207,6 +207,8 @@ export function useSessionController(props: SessionControllerProps): SessionCont
   onTaglineChangeRef.current = onTaglineChange;
   const isActiveRef = useRef(isActive);
   isActiveRef.current = isActive;
+  const sdkModelsRef = useRef(sdkModels);
+  sdkModelsRef.current = sdkModels;
 
   // ── Agent lifecycle ─────────────────────────────────────────────
   useEffect(() => {
@@ -220,10 +222,10 @@ export function useSessionController(props: SessionControllerProps): SessionCont
     let cancelled = false;
 
     // Use SDK models/efforts if available, fallback to hardcoded defaults
-    const effectiveModels = resolveModels(sdkModels);
+    const effectiveModels = resolveModels(sdkModelsRef.current);
     const clampedModelIdx = Math.min(modelIdx, effectiveModels.length - 1);
     const modelId = clampedModelIdx >= 0 ? effectiveModels[clampedModelIdx].id : "";
-    const effectiveEfforts = sdkModels.length > 0
+    const effectiveEfforts = sdkModelsRef.current.length > 0
       ? (() => { const m = sdkModels.find(s => s.value === modelId); return m?.supportedEffortLevels?.length ? m.supportedEffortLevels : DEFAULT_EFFORTS; })()
       : DEFAULT_EFFORTS;
     const effortId = effectiveEfforts[effortIdx] || "high";
@@ -315,7 +317,7 @@ export function useSessionController(props: SessionControllerProps): SessionCont
         setInputState("processing");
         onTaglineChangeRef.current?.(tabIdRef.current, "Question");
         notifyAttention("Question", "Claude is asking a question", !isActiveRef.current).catch((err) => console.debug("[session] ask notification failed:", err));
-        queueMicrotask(() => messagesEndRef.current?.scrollIntoView({ behavior: "smooth" }));
+        requestAnimationFrame(() => messagesEndRef.current?.scrollIntoView({ behavior: "smooth" }));
       } else if (event.type === "inputRequired") {
         finalizeStreaming();
         finalizeThinking();

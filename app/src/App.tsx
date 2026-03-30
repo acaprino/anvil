@@ -300,6 +300,11 @@ function AppContent() {
     handleSessionAction("fork", sessionId, cwd, inNewTab);
   }, [handleSessionAction]);
 
+  const handleViewSession = useCallback((sessionId: string) => {
+    const newId = addTab();
+    updateTab(newId, { type: "transcript", transcriptSessionId: sessionId });
+  }, [addTab, updateTab]);
+
   // H4: Memoize resize handlers to avoid creating new arrow functions every render
   const resizeHandlers = useMemo(() => ({
     N:  () => appWindow.startResizeDragging("North"),
@@ -429,10 +434,7 @@ function AppContent() {
                       onRequestClose={closeTab}
                       onResumeSession={handleResumeSession}
                       onForkSession={handleForkSession}
-                      onViewSession={(sessionId) => {
-                        const newId = addTab();
-                        updateTab(newId, { type: "transcript", transcriptSessionId: sessionId });
-                      }}
+                      onViewSession={handleViewSession}
                     />
                   </Suspense>
                 </ErrorBoundary>
