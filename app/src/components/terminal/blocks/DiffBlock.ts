@@ -46,11 +46,21 @@ export class DiffBlock implements Block {
 
   render(cols: number, palette: TerminalPalette): string {
     const icon = this.statusIcon(palette);
-    const title = `${this.tool} ${this.filePath} ${icon}`;
+    // Show basename instead of full path for readability
+    const fileName = this.filePath.split(/[/\\]/).pop() || this.filePath;
+    const stats = this.additions || this.deletions
+      ? ` ${fg(palette.green)}+${this.additions}${RESET} ${fg(palette.red)}-${this.deletions}${RESET}`
+      : "";
+    const title = `${this.tool} ${fileName}${stats} ${icon}`;
     const content: string[] = [];
 
-    for (const line of this.diffContent.split("\n")) {
-      const truncated = line.length > cols - 6 ? line.slice(0, cols - 9) + "..." : line;
+    const diffLines = this.diffContent.split("\n");
+    const maxLines = 40;
+    const displayLines = diffLines.slice(0, maxLines);
+
+    for (const line of displayLines) {
+      const maxLen = cols - 6;
+      const truncated = line.length > maxLen ? line.slice(0, maxLen - 3) + "..." : line;
       if (line.startsWith("+") && !line.startsWith("+++")) {
         content.push(`${fg(palette.green)}${truncated}${RESET}`);
       } else if (line.startsWith("-") && !line.startsWith("---")) {
@@ -60,6 +70,10 @@ export class DiffBlock implements Block {
       } else {
         content.push(`${DIM}${truncated}${RESET}`);
       }
+    }
+
+    if (diffLines.length > maxLines) {
+      content.push(`${DIM}... ${diffLines.length - maxLines} more lines${RESET}`);
     }
 
     const borderColor = this.status === "fail" ? palette.red

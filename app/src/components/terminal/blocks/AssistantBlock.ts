@@ -23,7 +23,8 @@ export class AssistantBlock implements Block {
   }
 
   render(cols: number, palette: TerminalPalette): string {
-    const formatted = inlineMarkdown(sanitizeAgentText(this.text), palette);
+    const sanitized = sanitizeAgentText(this.text).replace(/\s+$/, "");
+    const formatted = inlineMarkdown(sanitized, palette);
     const lines: string[] = [];
     let inCodeBlock = false;
     let codeLang = "";

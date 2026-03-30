@@ -24,6 +24,8 @@ export class TerminalRenderer {
   private streamingActive = false;
   /** Blocks whose updates were deferred during streaming */
   private deferredUpdates: Block[] = [];
+  /** Whether the last streamed chunk ended with a newline */
+  private lastStreamedEndedWithNewline = false;
 
   constructor(
     private terminal: Terminal,
@@ -105,9 +107,15 @@ export class TerminalRenderer {
   }
 
   private renderBlock(block: Block): void {
+    // Add visual spacing before user prompts (start of a new turn)
+    const addSpacing = block.type === "user" && this.document.getBlockCount() > 1;
+    if (addSpacing) {
+      this.terminal.write("\r\n");
+    }
+
     const content = block.render(this.cols, this.palette);
     this.terminal.write(content);
-    const lineCount = (content.match(/\r\n/g) || []).length;
+    const lineCount = (content.match(/\r\n/g) || []).length + (addSpacing ? 1 : 0);
     this.document.commitBlockLines(block, lineCount);
   }
 
@@ -200,6 +208,11 @@ export class TerminalRenderer {
     let currentLine = startBlock.startLine;
     for (let i = startIdx; i < blocks.length; i++) {
       const b = blocks[i];
+      // Add visual spacing before user prompts
+      if (b.type === "user" && i > 0) {
+        this.terminal.write("\r\n");
+        currentLine++;
+      }
       b.startLine = currentLine;
       b.frozen = false;
       const content = b.render(this.cols, this.palette);
@@ -214,15 +227,34 @@ export class TerminalRenderer {
   private writeStreaming(text: string): void {
     this.inputManager?.notifyOutput();
     const sanitized = sanitizeAgentText(text);
-    const xtermText = sanitized.replace(/\n/g, "\r\n");
+    // Trim trailing whitespace per line (but preserve newlines)
+    const trimmed = sanitized.replace(/[ \t]+$/gm, "");
+    const xtermText = trimmed.replace(/\n/g, "\r\n");
     this.terminal.write(xtermText);
+    this.lastStreamedEndedWithNewline = trimmed.endsWith("\n");
   }
 
   /** Called when streaming ends */
   private onStreamEnd(): void {
     this.streamingActive = false;
     this.inputManager?.setStreamingActive(false);
-    this.terminal.write("\r\n");
+
+    // Only add newline if the streamed text didn't already end with one
+    if (!this.lastStreamedEndedWithNewline) {
+      this.terminal.write("\r\n");
+    }
+    this.lastStreamedEndedWithNewline = false;
+
+    // Fix up line count for the streaming block (was committed as 0 at start)
+    const blocks = this.document.getBlocks();
+    for (let i = blocks.length - 1; i >= 0; i--) {
+      if (blocks[i].type === "assistant") {
+        const content = blocks[i].render(this.cols, this.palette);
+        const lineCount = (content.match(/\r\n/g) || []).length;
+        this.document.commitBlockLines(blocks[i], lineCount);
+        break;
+      }
+    }
 
     // Flush deferred updates
     const deferred = this.deferredUpdates.splice(0);
@@ -246,7 +278,14 @@ export class TerminalRenderer {
     this.terminal.write("\x1b[H\x1b[2J");
 
     let currentLine = 0;
-    for (const block of this.document.getBlocks()) {
+    const blocks = this.document.getBlocks();
+    for (let i = 0; i < blocks.length; i++) {
+      const block = blocks[i];
+      // Add visual spacing before user prompts
+      if (block.type === "user" && i > 0) {
+        this.terminal.write("\r\n");
+        currentLine++;
+      }
       block.startLine = currentLine;
       block.frozen = false;
       const content = block.render(this.cols, this.palette);
