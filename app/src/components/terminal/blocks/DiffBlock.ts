@@ -2,8 +2,6 @@ import type { Block } from "./Block";
 import type { TerminalPalette } from "../themes";
 import { fg, DIM, RESET, ICON } from "../AnsiUtils";
 
-const GUTTER = `  ${DIM}${ICON.gutter}${RESET} `;
-
 export class DiffBlock implements Block {
   readonly type = "diff";
   readonly timestamp = Date.now();
@@ -52,33 +50,29 @@ export class DiffBlock implements Block {
     const stats = this.additions || this.deletions
       ? ` ${fg(palette.green)}+${this.additions}${RESET} ${fg(palette.red)}-${this.deletions}${RESET}`
       : "";
-    const header = `${GUTTER}${icon} ${this.tool} ${fileName}${stats}`;
 
-    // Pending: just header. Resolved: header only (diff details not needed inline).
-    if (this.status === "pending") {
-      return `${header}\r\n`;
-    }
+    // Header: ● Edit filename.ts +3 -1 ✓
+    const lines = [`  ${icon} ${this.tool} ${fileName}${stats}`];
 
-    // Show a few diff lines on success for context, all on failure
-    const maxLines = this.status === "fail" ? 20 : 6;
-    const diffLines = this.diffContent.split("\n").slice(0, maxLines);
-    const lines = [header];
-
-    for (const line of diffLines) {
-      const maxLen = cols - 8;
-      const truncated = line.length > maxLen ? line.slice(0, maxLen - 3) + "..." : line;
-      if (line.startsWith("+") && !line.startsWith("+++")) {
-        lines.push(`${GUTTER}  ${fg(palette.green)}${truncated}${RESET}`);
-      } else if (line.startsWith("-") && !line.startsWith("---")) {
-        lines.push(`${GUTTER}  ${fg(palette.red)}${truncated}${RESET}`);
-      } else {
-        lines.push(`${GUTTER}  ${DIM}${truncated}${RESET}`);
+    // Show diff lines on success (brief) or failure (more)
+    if (this.status !== "pending") {
+      const maxLines = this.status === "fail" ? 20 : 6;
+      const diffLines = this.diffContent.split("\n").slice(0, maxLines);
+      for (const line of diffLines) {
+        const maxLen = cols - 6;
+        const truncated = line.length > maxLen ? line.slice(0, maxLen - 3) + "..." : line;
+        if (line.startsWith("+") && !line.startsWith("+++")) {
+          lines.push(`    ${fg(palette.green)}${truncated}${RESET}`);
+        } else if (line.startsWith("-") && !line.startsWith("---")) {
+          lines.push(`    ${fg(palette.red)}${truncated}${RESET}`);
+        } else {
+          lines.push(`    ${DIM}${truncated}${RESET}`);
+        }
       }
-    }
-
-    const totalDiffLines = this.diffContent.split("\n").length;
-    if (totalDiffLines > maxLines) {
-      lines.push(`${GUTTER}  ${DIM}... ${totalDiffLines - maxLines} more lines${RESET}`);
+      const totalDiffLines = this.diffContent.split("\n").length;
+      if (totalDiffLines > maxLines) {
+        lines.push(`    ${DIM}... ${totalDiffLines - maxLines} more lines${RESET}`);
+      }
     }
 
     return lines.join("\r\n") + "\r\n";

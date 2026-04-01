@@ -1,8 +1,6 @@
 import type { Block } from "./Block";
 import type { TerminalPalette } from "../themes";
-import { fg, DIM, RESET, ICON } from "../AnsiUtils";
-
-const GUTTER = `  ${DIM}${ICON.gutter}${RESET} `;
+import { fg, DIM, RESET } from "../AnsiUtils";
 
 export class StatusBlock implements Block {
   readonly type = "status";
@@ -18,6 +16,6 @@ export class StatusBlock implements Block {
   ) {}
 
   render(_cols: number, palette: TerminalPalette): string {
-    return `${GUTTER}${DIM}${fg(palette.textDim)}${this.status}${RESET}\r\n`;
+    return `${DIM}${fg(palette.textDim)}${this.status}${RESET}\r\n`;
   }
 }

@@ -2,8 +2,6 @@ import type { Block } from "./Block";
 import type { TerminalPalette } from "../themes";
 import { fg, DIM, RESET, ICON, sanitizeAgentText } from "../AnsiUtils";
 
-const GUTTER = `  ${DIM}${ICON.gutter}${RESET} `;
-
 export class ToolBlock implements Block {
   readonly type = "tool";
   readonly timestamp = Date.now();
@@ -53,14 +51,14 @@ export class ToolBlock implements Block {
     const summary = this.inputSummary();
     const toolLabel = summary ? `${this.tool} ${DIM}${summary}${RESET}` : this.tool;
 
-    const lines: string[] = [`${GUTTER}${icon} ${toolLabel}`];
+    const lines: string[] = [`  ${icon} ${toolLabel}`];
 
     // Show output only on error (max 5 lines)
     if (this.status === "fail" && this.output) {
       const sanitized = sanitizeAgentText(this.output);
       const errLines = sanitized.split("\n").slice(0, 5);
       for (const line of errLines) {
-        lines.push(`${GUTTER}  ${fg(palette.red)}${line}${RESET}`);
+        lines.push(`    ${fg(palette.red)}${line}${RESET}`);
       }
     }
 
