@@ -74,6 +74,10 @@ export class TerminalRenderer {
         this.onStreamEnd();
         break;
       case "thinkingAppend":
+        // Skip terminal update while user is typing — prevents visible flicker
+        // from the suspend/update/resume cycle. The thinking line count catches
+        // up when thinking finalizes or when the user submits.
+        if (this.inputManager?.hasInputOnScreen()) break;
         this.onBlockUpdated(event.block);
         break;
       case "cleared":

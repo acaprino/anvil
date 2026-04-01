@@ -123,6 +123,11 @@ export class InputManager {
     this.inputCursorRow = 0;
   }
 
+  /** Whether user-typed input is currently visible on screen */
+  hasInputOnScreen(): boolean {
+    return this.inputLineOnScreen && this.buffer.length > 0;
+  }
+
   updatePalette(palette: TerminalPalette): void {
     this.palette = palette;
   }
