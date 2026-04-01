@@ -6,7 +6,7 @@
 import type { Terminal } from "@xterm/xterm";
 import type { TerminalPalette } from "./themes";
 import type { PermissionSuggestion, AskQuestionItem } from "../../types";
-import { fg, BOLD, DIM, RESET, ICON, ERASE_LINE, ERASE_BELOW, cursorColumn, cursorUp, cursorDown, CURSOR_SAVE, CURSOR_RESTORE } from "./AnsiUtils";
+import { fg, BOLD, DIM, RESET, ICON, ERASE_LINE, ERASE_BELOW, ERASE_TO_END, cursorColumn, cursorUp, cursorDown, cursorBack, CURSOR_SAVE, CURSOR_RESTORE } from "./AnsiUtils";
 
 export type InputMode = "normal" | "processing" | "ask" | "permission";
 
@@ -319,6 +319,11 @@ export class InputManager {
         this.startSpinner();
         return;
       }
+      // Fast path: single-line — just erase from cursor to end
+      if (this.inputRows <= 1) {
+        this.terminal.write(ERASE_TO_END);
+        return;
+      }
       this.redrawLine();
       return;
     }
@@ -433,7 +438,26 @@ export class InputManager {
       this.inputRows = 1;
       this.inputCursorRow = 0;
     } else {
-      // Erase old wrapped input before updating buffer
+      // Fast path: single-line input that stays single-line — no erase/redraw flicker
+      const cols = this.terminal.cols || 80;
+      const newLen = 2 + this.buffer.length + text.length; // "❯ " = 2 visible chars
+      if (this.inputRows <= 1 && newLen <= cols) {
+        if (this.cursorPos === this.buffer.length) {
+          // Append at end — just write the new chars
+          this.buffer += text;
+          this.cursorPos += text.length;
+          this.terminal.write(text);
+        } else {
+          // Middle insert — write inserted text + remainder, erase leftover
+          const tail = this.buffer.slice(this.cursorPos);
+          this.buffer = this.buffer.slice(0, this.cursorPos) + text + tail;
+          this.cursorPos += text.length;
+          this.terminal.write(text + tail + ERASE_TO_END + (tail.length > 0 ? cursorBack(tail.length) : ""));
+        }
+        if (this.mode === "processing") this.inputLineOnScreen = true;
+        return;
+      }
+      // Slow path: erase and full redraw (wrapped lines or about to wrap)
       this.eraseInput();
     }
 
@@ -448,6 +472,7 @@ export class InputManager {
 
   private backspace(): void {
     if (this.cursorPos <= 0) return;
+    const wasAtEnd = this.cursorPos === this.buffer.length;
     this.buffer = this.buffer.slice(0, this.cursorPos - 1) + this.buffer.slice(this.cursorPos);
     this.cursorPos--;
     if (this.streamingActive && this.mode === "processing") return; // buffer-only during streaming
@@ -456,6 +481,18 @@ export class InputManager {
       this.eraseInput();
       this.inputLineOnScreen = false;
       this.startSpinner();
+      return;
+    }
+    // Fast path: single-line — no erase/redraw flicker
+    if (this.inputRows <= 1) {
+      if (wasAtEnd) {
+        // Delete at end — erase last visible char
+        this.terminal.write("\b \b");
+      } else {
+        // Delete in middle — rewrite from cursor, erase trailing char
+        const tail = this.buffer.slice(this.cursorPos);
+        this.terminal.write("\b" + tail + ERASE_TO_END + (tail.length > 0 ? cursorBack(tail.length) : ""));
+      }
       return;
     }
     this.redrawLine();
@@ -469,6 +506,12 @@ export class InputManager {
       this.eraseInput();
       this.inputLineOnScreen = false;
       this.startSpinner();
+      return;
+    }
+    // Fast path: single-line — rewrite from cursor, erase trailing char
+    if (this.inputRows <= 1) {
+      const tail = this.buffer.slice(this.cursorPos);
+      this.terminal.write(tail + ERASE_TO_END + (tail.length > 0 ? cursorBack(tail.length) : ""));
       return;
     }
     this.redrawLine();
