@@ -1,6 +1,6 @@
 import type { Block } from "./Block";
 import type { TerminalPalette } from "../themes";
-import { fg, BOLD, RESET, ICON, wordWrap } from "../AnsiUtils";
+import { fg, BOLD, RESET, wordWrap } from "../AnsiUtils";
 
 export class UserBlock implements Block {
   readonly type = "user";
@@ -16,7 +16,7 @@ export class UserBlock implements Block {
   }
 
   render(cols: number, palette: TerminalPalette): string {
-    const prefix = `${fg(palette.accent)}${BOLD}${ICON.prompt}${RESET} `;
+    const prefix = `${fg(palette.accent)}${BOLD}${palette.icons.prompt}${RESET} `;
     const prefixLen = 2; // "❯ "
     const lines = wordWrap(this.text, cols - prefixLen);
 

@@ -1,6 +1,6 @@
 import type { Block } from "./Block";
 import type { TerminalPalette } from "../themes";
-import { fg, DIM, ITALIC, RESET, ICON } from "../AnsiUtils";
+import { fg, DIM, ITALIC, RESET } from "../AnsiUtils";
 
 export class ThinkingBlock implements Block {
   readonly type = "thinking";
@@ -26,8 +26,8 @@ export class ThinkingBlock implements Block {
   render(_cols: number, palette: TerminalPalette): string {
     const elapsed = ((Date.now() - this.startTime) / 1000).toFixed(0);
     const icon = this.ended
-      ? `${fg(palette.textDim)}${ICON.thinking}${RESET}`
-      : `${fg(palette.accent)}${ICON.thinking}${RESET}`;
+      ? `${fg(palette.textDim)}${palette.icons.thinking}${RESET}`
+      : `${fg(palette.accent)}${palette.icons.thinking}${RESET}`;
     const label = this.ended
       ? `Thought for ${elapsed}s`
       : "Thinking...";

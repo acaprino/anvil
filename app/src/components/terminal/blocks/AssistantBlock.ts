@@ -45,9 +45,13 @@ export class AssistantBlock implements Block {
       if (inCodeBlock) {
         lines.push(`  ${highlightCode(rawLine, palette)}`);
       } else {
-        const formatted = formatMarkdownLine(rawLine, palette);
-        const wrapped = wordWrap(formatted, cols - 1);
-        lines.push(...wrapped);
+        // Add blank line before headers (spacing managed here, not in formatMarkdownLine)
+        if (/^#{1,6}\s/.test(rawLine)) lines.push("");
+        // wordWrap on plain text first (ANSI bytes break column counting),
+        // then apply markdown formatting per wrapped line
+        const wrapped = wordWrap(rawLine, cols - 1);
+        lines.push(...wrapped.map(w => formatMarkdownLine(w, palette)));
+        if (/^#{1,6}\s/.test(rawLine)) lines.push("");
       }
     }
 

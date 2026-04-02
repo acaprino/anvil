@@ -280,7 +280,9 @@ export class TerminalRenderer {
         if (partialRows > 1) this.terminal.write(cursorUp(partialRows - 1));
         this.terminal.write("\r");
 
-        const formatted = formatMarkdownLine(this.streamLineBuffer, this.palette);
+        let formatted = formatMarkdownLine(this.streamLineBuffer, this.palette);
+        // Safety: strip any embedded \r\n — streaming manages its own line breaks
+        formatted = formatted.replace(/\r\n/g, "");
         this.terminal.write(formatted + "\r\n");
         this.streamLineBuffer = "";
         this.streamPartialCols = 0;

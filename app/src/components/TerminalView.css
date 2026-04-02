@@ -607,3 +607,88 @@
 @media (prefers-reduced-motion: reduce) {
   .tv-assistant--streaming::after { animation: none; opacity: 1; }
 }
+
+/* ── Terminal command/mention menu overlay ───────────────────── */
+.terminal-menu {
+  position: absolute;
+  bottom: 8px;
+  left: 8px;
+  right: 8px;
+  background: var(--crust);
+  border: 1px solid color-mix(in srgb, var(--overlay0) 50%, transparent);
+  border-radius: var(--radius-md);
+  max-height: 280px;
+  overflow-y: auto;
+  z-index: var(--z-modal);
+  padding: var(--space-1) 0;
+  animation: terminal-menu-in 0.12s ease-out;
+  scrollbar-width: thin;
+  scrollbar-color: color-mix(in srgb, var(--overlay0) 40%, transparent) transparent;
+}
+@keyframes terminal-menu-in {
+  from { opacity: 0; transform: translateY(4px); }
+  to { opacity: 1; transform: translateY(0); }
+}
+.terminal-menu::-webkit-scrollbar { width: 4px; }
+.terminal-menu::-webkit-scrollbar-thumb {
+  background: color-mix(in srgb, var(--overlay0) 40%, transparent);
+}
+
+.terminal-menu .tm-section {
+  display: flex;
+  align-items: center;
+  gap: var(--space-2);
+  padding: var(--space-1) var(--space-3);
+  font-size: var(--text-2xs);
+  color: var(--text-dim);
+  opacity: 0.5;
+  text-transform: uppercase;
+  letter-spacing: 0.5px;
+  user-select: none;
+}
+.terminal-menu .tm-section .tm-rule {
+  flex: 1;
+  height: 1px;
+  background: color-mix(in srgb, var(--overlay0) 25%, transparent);
+}
+
+.terminal-menu .tm-item {
+  display: flex;
+  align-items: center;
+  gap: var(--space-3);
+  padding: var(--space-1) var(--space-3);
+  cursor: pointer;
+  font-size: var(--text-sm);
+  font-family: var(--font-mono);
+  transition: background 0.08s;
+}
+.terminal-menu .tm-item:hover,
+.terminal-menu .tm-item.selected {
+  background: color-mix(in srgb, var(--accent) 12%, transparent);
+}
+.terminal-menu .tm-indicator {
+  width: 10px;
+  font-size: var(--text-xs);
+  color: var(--accent);
+  flex-shrink: 0;
+  opacity: 0;
+}
+.terminal-menu .tm-item.selected .tm-indicator {
+  opacity: 1;
+}
+.terminal-menu .tm-name {
+  color: var(--accent);
+  font-weight: 600;
+  white-space: nowrap;
+  flex-shrink: 0;
+  min-width: 100px;
+}
+.terminal-menu .tm-desc {
+  color: var(--text-dim);
+  font-size: var(--text-xs);
+  opacity: 0.6;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  min-width: 0;
+}

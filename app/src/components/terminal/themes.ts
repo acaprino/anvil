@@ -1,5 +1,7 @@
 import type { ITheme } from "@xterm/xterm";
-import type { ThemeColors } from "../../types";
+import type { ThemeColors, Theme } from "../../types";
+import type { IconSet } from "./AnsiUtils";
+import { resolveIconSet, ICON } from "./AnsiUtils";
 
 /**
  * Convert ThemeColors to xterm.js ITheme.
@@ -52,9 +54,15 @@ export interface TerminalPalette {
   overlay1: string;
   bg: string;
   crust: string;
+  icons: IconSet;
 }
 
-export function themeColorsToPalette(c: ThemeColors): TerminalPalette {
+export function themeColorsToPalette(c: ThemeColors, theme?: Theme): TerminalPalette {
+  // Resolve icon set: theme can specify preset name or individual overrides
+  // Retro themes default to "retro" icon set unless explicitly overridden
+  const iconPreset = theme?.iconSet || (theme?.retro ? "retro" : "default");
+  const icons = resolveIconSet(iconPreset, theme?.icons);
+
   return {
     text: c.text,
     textDim: c.textDim,
@@ -67,5 +75,16 @@ export function themeColorsToPalette(c: ThemeColors): TerminalPalette {
     overlay1: c.overlay1,
     bg: c.bg,
     crust: c.crust,
+    icons,
+  };
+}
+
+/** Build a default palette without a theme (used as fallback) */
+export function defaultPalette(): TerminalPalette {
+  return {
+    text: "#cdd6f4", textDim: "#6c7086", accent: "#89b4fa", red: "#f38ba8",
+    green: "#a6e3a1", yellow: "#f9e2af", surface: "#313244", overlay0: "#6c7086",
+    overlay1: "#7f849c", bg: "#1e1e2e", crust: "#11111b",
+    icons: ICON,
   };
 }

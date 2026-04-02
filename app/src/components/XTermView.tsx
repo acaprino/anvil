@@ -4,7 +4,7 @@
  * to render structured AgentEvents as ANSI-formatted terminal output.
  * InputManager handles all keyboard input directly in xterm.js.
  */
-import { memo, useCallback, useEffect, useRef, useState } from "react";
+import { memo, useCallback, useEffect, useRef, useState, useMemo } from "react";
 import { Terminal } from "@xterm/xterm";
 import { FitAddon } from "@xterm/addon-fit";
 import { WebglAddon } from "@xterm/addon-webgl";
@@ -17,7 +17,7 @@ import "./TerminalView.css";
 import { PERM_MODES } from "../types";
 import type { SessionViewProps } from "./SessionViewProps";
 import type { Theme, Attachment } from "../types";
-import { themeColorsToXterm, themeColorsToPalette } from "./terminal/themes";
+import { themeColorsToXterm, themeColorsToPalette, defaultPalette } from "./terminal/themes";
 import { TerminalRenderer } from "./terminal/TerminalRenderer";
 import { InputManager } from "./terminal/InputManager";
 import type { PermissionBlock } from "./terminal/blocks/PermissionBlock";
@@ -47,6 +47,7 @@ export default memo(function XTermView(props: SessionViewProps) {
     document: termDocument,
     projectPath,
     models, efforts,
+    sdkCommands, sdkAgents,
   } = ctrl;
 
   const themes = useThemes();
@@ -57,6 +58,12 @@ export default memo(function XTermView(props: SessionViewProps) {
   currentThemeRef.current = currentTheme;
 
   const [sidebarOpen, setSidebarOpen] = useState(true);
+
+  // ── Command/mention menu state ──
+  const [menuOpen, setMenuOpen] = useState(false);
+  const [menuType, setMenuType] = useState<"command" | "mention">("command");
+  const [menuFilter, setMenuFilter] = useState("");
+  const [menuSelectedIdx, setMenuSelectedIdx] = useState(0);
 
   // ── Refs ──
   const containerRef = useRef<HTMLDivElement>(null);
@@ -80,6 +87,7 @@ export default memo(function XTermView(props: SessionViewProps) {
   handlePermissionRespondRef.current = handlePermissionRespond;
   const handleAskUserRespondRef = useRef(handleAskUserRespond);
   handleAskUserRespondRef.current = handleAskUserRespond;
+  const menuSelectRef = useRef<(() => void) | null>(null);
 
   // ── Initialize xterm.js + Document + Renderer + InputManager ──
   useEffect(() => {
@@ -132,8 +140,8 @@ export default memo(function XTermView(props: SessionViewProps) {
 
     // Create Renderer using the document from useSessionController (already exists)
     const palette = currentTheme
-      ? themeColorsToPalette(currentTheme.colors)
-      : { text: "#cdd6f4", textDim: "#6c7086", accent: "#89b4fa", red: "#f38ba8", green: "#a6e3a1", yellow: "#f9e2af", surface: "#313244", overlay0: "#6c7086", overlay1: "#7f849c", bg: "#1e1e2e", crust: "#11111b" };
+      ? themeColorsToPalette(currentTheme.colors, currentTheme)
+      : defaultPalette();
 
     const renderer = new TerminalRenderer(term, termDocument, palette);
     rendererRef.current = renderer;
@@ -166,6 +174,22 @@ export default memo(function XTermView(props: SessionViewProps) {
         } catch {
           return [];
         }
+      },
+      onMenuOpen: (type, filter) => {
+        setMenuType(type);
+        setMenuFilter(filter);
+        setMenuOpen(true);
+        setMenuSelectedIdx(0);
+      },
+      onMenuClose: () => {
+        setMenuOpen(false);
+      },
+      onMenuNavigate: (dir) => {
+        setMenuSelectedIdx(prev => Math.max(0, prev + dir));
+      },
+      onMenuSelect: () => {
+        // Handled by the menu render logic below via menuSelectRef
+        menuSelectRef.current?.();
       },
     });
     inputManagerRef.current = inputManager;
@@ -235,7 +259,7 @@ export default memo(function XTermView(props: SessionViewProps) {
     if (currentTheme.termFontSize) {
       termRef.current.options.fontSize = currentTheme.termFontSize;
     }
-    const newPalette = themeColorsToPalette(currentTheme.colors);
+    const newPalette = themeColorsToPalette(currentTheme.colors, currentTheme);
     if (rendererRef.current) {
       rendererRef.current.updatePalette(newPalette);
       rendererRef.current.fullRedraw();
@@ -311,14 +335,112 @@ export default memo(function XTermView(props: SessionViewProps) {
     return () => window.removeEventListener("keydown", handler);
   }, [isActive, toggleSidebar]);
 
+  // ── Command/mention menu items ──
+  const LOCAL_COMMANDS = useMemo(() => [
+    { name: "/clear", desc: "Clear chat messages" },
+    { name: "/compact", desc: "Summarize conversation" },
+    { name: "/help", desc: "Show help" },
+    { name: "/login", desc: "Authenticate with Anthropic" },
+    { name: "/status", desc: "Show auth & connection status" },
+    { name: "/doctor", desc: "Diagnose configuration issues" },
+  ], []);
+
+  const menuSections = useMemo(() => {
+    if (!menuOpen) return [];
+    if (menuType === "command") {
+      const filter = menuFilter.replace(/^\//, "").toLowerCase();
+      const local = LOCAL_COMMANDS.filter(c => c.name.includes(filter) || c.desc.toLowerCase().includes(filter));
+      const sdk = (sdkCommands || [])
+        .filter(c => !LOCAL_COMMANDS.some(l => l.name === "/" + c.name))
+        .filter(c => !filter || c.name.includes(filter) || c.description.toLowerCase().includes(filter))
+        .map(c => ({ name: "/" + c.name, desc: c.description.split(".")[0] })); // truncate to first sentence
+      const sections: { label: string; items: { name: string; desc: string }[] }[] = [];
+      if (local.length) sections.push({ label: "Claude Code GUI", items: local });
+      if (sdk.length) sections.push({ label: "Skills", items: sdk });
+      return sections;
+    }
+    // mention
+    const filter = menuFilter.replace(/^@/, "").toLowerCase();
+    const agents = (sdkAgents || [])
+      .filter(a => !filter || a.name.toLowerCase().includes(filter) || (a.description || "").toLowerCase().includes(filter))
+      .map(a => ({ name: "@" + a.name, desc: a.description || "" }));
+    return agents.length ? [{ label: "Agents", items: agents }] : [];
+  }, [menuOpen, menuType, menuFilter, sdkCommands, sdkAgents, LOCAL_COMMANDS]);
+
+  // Flatten sections into a single selectable list
+  const menuItems = useMemo(() => menuSections.flatMap(s => s.items), [menuSections]);
+
+  // Clamp selected index — also reset state when list shrinks
+  const clampedIdx = Math.min(menuSelectedIdx, Math.max(0, menuItems.length - 1));
+  useEffect(() => {
+    if (menuItems.length > 0 && menuSelectedIdx >= menuItems.length) {
+      setMenuSelectedIdx(Math.max(0, menuItems.length - 1));
+    }
+  }, [menuItems.length, menuSelectedIdx]);
+
+  // Wire menuSelect ref — called by InputManager's onMenuSelect callback
+  menuSelectRef.current = () => {
+    if (menuItems.length === 0) return;
+    const idx = Math.min(menuSelectedIdx, menuItems.length - 1);
+    const item = menuItems[idx];
+    if (!item) return; // safety guard
+    const im = inputManagerRef.current;
+    if (!im) return;
+    if (menuType === "command") {
+      // Commands: replace buffer with command text and submit
+      im.replaceBuffer(item.name, true);
+    } else {
+      // Mentions: replace @filter with @name + space, don't submit
+      const atIdx = im.getBuffer().lastIndexOf("@");
+      const before = im.getBuffer().slice(0, atIdx);
+      im.replaceBuffer(before + item.name + " ", false);
+    }
+  };
+
   return (
     <div className="tv-wrapper">
       <div className="tv-main-row">
         <div
           ref={containerRef}
           className="xterm-container"
-          style={{ flex: 1, overflow: "hidden" }}
-        />
+          style={{ flex: 1, overflow: "hidden", position: "relative" }}
+        >
+          {/* Command/mention menu overlay */}
+          {menuOpen && menuItems.length > 0 && (
+            <div className="terminal-menu" role="listbox">
+              {menuSections.map((section) => {
+                const sectionStartIdx = menuItems.indexOf(section.items[0]);
+                return (
+                  <div key={section.label}>
+                    <div className="tm-section">
+                      <span className="tm-rule" />
+                      <span>{section.label}</span>
+                      <span className="tm-rule" />
+                    </div>
+                    {section.items.map((item, si) => {
+                      const globalIdx = sectionStartIdx + si;
+                      return (
+                        <div
+                          key={item.name}
+                          className={`tm-item${globalIdx === clampedIdx ? " selected" : ""}`}
+                          role="option"
+                          aria-selected={globalIdx === clampedIdx}
+                          ref={globalIdx === clampedIdx ? (el) => el?.scrollIntoView({ block: "nearest" }) : undefined}
+                          onClick={() => { setMenuSelectedIdx(globalIdx); menuSelectRef.current?.(); }}
+                          onMouseEnter={() => setMenuSelectedIdx(globalIdx)}
+                        >
+                          <span className="tm-indicator">&gt;</span>
+                          <span className="tm-name">{item.name}</span>
+                          <span className="tm-desc">{item.desc}</span>
+                        </div>
+                      );
+                    })}
+                  </div>
+                );
+              })}
+            </div>
+          )}
+        </div>
         {sessionPanelOpen && onCloseSessionPanel && onResumeSession && onForkSession && (
           <SessionPanel
             projectPath={projectPath}

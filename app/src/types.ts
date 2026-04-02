@@ -173,6 +173,10 @@ export interface Theme {
   uiFontSize?: number;
   /** Layout tokens — dimensions, radii, spacing, shadows */
   layout?: ThemeLayout;
+  /** Icon set preset: "default" | "minimal" | "retro" | "nerd" | "emoji" */
+  iconSet?: string;
+  /** Individual icon overrides (merged on top of the preset) */
+  icons?: Partial<import("./components/terminal/AnsiUtils").IconSet>;
 }
 
 // Themes are loaded at runtime from the filesystem via load_themes command

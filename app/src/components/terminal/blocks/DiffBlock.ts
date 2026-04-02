@@ -1,6 +1,6 @@
 import type { Block } from "./Block";
 import type { TerminalPalette } from "../themes";
-import { fg, DIM, RESET, ICON } from "../AnsiUtils";
+import { fg, DIM, RESET } from "../AnsiUtils";
 
 export class DiffBlock implements Block {
   readonly type = "diff";
@@ -39,9 +39,9 @@ export class DiffBlock implements Block {
 
   private statusIcon(palette: TerminalPalette): string {
     switch (this.status) {
-      case "pending": return `${DIM}${ICON.bullet}${RESET}`;
-      case "success": return `${fg(palette.green)}${ICON.bullet} ${ICON.success}${RESET}`;
-      case "fail": return `${fg(palette.red)}${ICON.bullet} ${ICON.fail}${RESET}`;
+      case "pending": return `${DIM}${palette.icons.bullet}${RESET}`;
+      case "success": return `${fg(palette.green)}${palette.icons.bullet} ${palette.icons.success}${RESET}`;
+      case "fail": return `${fg(palette.red)}${palette.icons.bullet} ${palette.icons.fail}${RESET}`;
     }
   }
 

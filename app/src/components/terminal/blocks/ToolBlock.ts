@@ -1,6 +1,6 @@
 import type { Block } from "./Block";
 import type { TerminalPalette } from "../themes";
-import { fg, DIM, RESET, ICON, sanitizeAgentText } from "../AnsiUtils";
+import { fg, DIM, RESET, sanitizeAgentText } from "../AnsiUtils";
 
 export class ToolBlock implements Block {
   readonly type = "tool";
@@ -38,9 +38,9 @@ export class ToolBlock implements Block {
 
   private statusIcon(palette: TerminalPalette): string {
     switch (this.status) {
-      case "pending": return `${DIM}${ICON.bullet}${RESET}`;
-      case "success": return `${fg(palette.green)}${ICON.bullet} ${ICON.success}${RESET}`;
-      case "fail": return `${fg(palette.red)}${ICON.bullet} ${ICON.fail}${RESET}`;
+      case "pending": return `${DIM}${palette.icons.bullet}${RESET}`;
+      case "success": return `${fg(palette.green)}${palette.icons.bullet} ${palette.icons.success}${RESET}`;
+      case "fail": return `${fg(palette.red)}${palette.icons.bullet} ${palette.icons.fail}${RESET}`;
     }
   }
 
@@ -66,7 +66,8 @@ export class ToolBlock implements Block {
 
     const icon = this.statusIcon(palette);
     const summary = this.inputSummary();
-    const toolLabel = summary ? `${this.tool} ${DIM}${summary}${RESET}` : this.tool;
+    const safeTool = sanitizeAgentText(this.tool);
+    const toolLabel = summary ? `${safeTool} ${DIM}${summary}${RESET}` : safeTool;
 
     const lines: string[] = [`  ${icon} ${toolLabel}`];
 

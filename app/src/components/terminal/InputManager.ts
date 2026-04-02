@@ -6,7 +6,7 @@
 import type { Terminal } from "@xterm/xterm";
 import type { TerminalPalette } from "./themes";
 import type { PermissionSuggestion, AskQuestionItem } from "../../types";
-import { fg, BOLD, DIM, RESET, ICON, ERASE_LINE, ERASE_TO_END, cursorColumn, cursorUp, cursorDown, cursorBack, CURSOR_SAVE, CURSOR_RESTORE, SPINNER_FRAMES, interpolateColor, randomSpinnerVerb } from "./AnsiUtils";
+import { fg, BOLD, DIM, RESET, ERASE_LINE, ERASE_TO_END, cursorColumn, cursorUp, cursorDown, cursorBack, CURSOR_SAVE, CURSOR_RESTORE, buildSpinnerFrames, interpolateColor, randomSpinnerVerb } from "./AnsiUtils";
 
 export type InputMode = "normal" | "processing" | "ask" | "permission";
 
@@ -16,6 +16,10 @@ export interface InputManagerCallbacks {
   onPermissionRespond: (toolUseId: string, allow: boolean, suggestions?: PermissionSuggestion[]) => void;
   onAskRespond: (answers: Record<string, string>) => void;
   onAutocomplete: (input: string) => Promise<string[]>;
+  onMenuOpen?: (type: "command" | "mention", filter: string) => void;
+  onMenuClose?: () => void;
+  onMenuNavigate?: (direction: number) => void;
+  onMenuSelect?: () => void;
 }
 
 export class InputManager {
@@ -42,10 +46,14 @@ export class InputManager {
   private spinnerStartTime = 0;
   private spinnerVerb = "Thinking...";
   private spinnerTokenCount = 0;
+  private spinnerFrames: string[];
   private static readonly STALL_THRESHOLD = 30_000; // 30s → color shift to red
 
   // Autocomplete state
   private completionInFlight = false;
+
+  // Command/mention menu state
+  menuActive = false;
 
   // Spinner layout: spinner on line N, cursor on line N+1 (for input below)
   private spinnerOnScreen = false;
@@ -69,6 +77,19 @@ export class InputManager {
     private palette: TerminalPalette,
     private callbacks: InputManagerCallbacks,
   ) {
+    this.spinnerFrames = buildSpinnerFrames(palette.icons);
+    // Intercept keys before xterm processes them (for menu navigation)
+    terminal.attachCustomKeyEventHandler((e: KeyboardEvent) => {
+      if (this.menuActive && ["ArrowUp", "ArrowDown", "Enter", "Escape", "Tab"].includes(e.key)) {
+        // Return false → xterm won't handle these keys; they propagate to menu listener
+        if (e.key === "ArrowUp") { e.preventDefault(); this.callbacks.onMenuNavigate?.(-1); return false; }
+        if (e.key === "ArrowDown") { e.preventDefault(); this.callbacks.onMenuNavigate?.(1); return false; }
+        if (e.key === "Enter") { e.preventDefault(); this.callbacks.onMenuSelect?.(); return false; }
+        if (e.key === "Tab") { e.preventDefault(); this.callbacks.onMenuSelect?.(); return false; }
+        if (e.key === "Escape") { e.preventDefault(); this.closeMenu(); return false; }
+      }
+      return true;
+    });
     // Capture keyboard input
     this.disposables.push(
       terminal.onData((data) => this.handleData(data)),
@@ -106,6 +127,10 @@ export class InputManager {
     return this.mode;
   }
 
+  getBuffer(): string {
+    return this.buffer;
+  }
+
   /** Set up permission mode with the tool/suggestions context */
   enterPermissionMode(toolUseId: string, suggestions?: PermissionSuggestion[]): void {
     this.permToolUseId = toolUseId;
@@ -139,6 +164,59 @@ export class InputManager {
 
   updatePalette(palette: TerminalPalette): void {
     this.palette = palette;
+    this.spinnerFrames = buildSpinnerFrames(palette.icons);
+    if (this.spinnerFrame >= this.spinnerFrames.length) this.spinnerFrame = 0;
+  }
+
+  // ── Menu helpers ────────────────────────────────────────────────
+
+  /** Check if buffer triggers a menu and notify XTermView */
+  private checkMenuTrigger(): void {
+    if (this.mode !== "normal" && this.mode !== "processing") return;
+    // Don't show menu during streaming — prompt isn't visible
+    if (this.streamingActive) {
+      if (this.menuActive) this.closeMenu();
+      return;
+    }
+
+    if (this.buffer.startsWith("/")) {
+      this.menuActive = true;
+      this.callbacks.onMenuOpen?.("command", this.buffer);
+    } else if (this.buffer.includes("@")) {
+      const atIdx = this.buffer.lastIndexOf("@");
+      // Only trigger on word boundary (start of buffer or preceded by space)
+      if (atIdx > 0 && this.buffer[atIdx - 1] !== " ") {
+        if (this.menuActive) this.closeMenu();
+        return;
+      }
+      const afterAt = this.buffer.slice(atIdx);
+      if (!/\s/.test(afterAt.slice(1)) || afterAt.length <= 1) {
+        this.menuActive = true;
+        this.callbacks.onMenuOpen?.("mention", afterAt);
+      } else if (this.menuActive) {
+        this.closeMenu();
+      }
+    } else if (this.menuActive) {
+      this.closeMenu();
+    }
+  }
+
+  /** Close the menu */
+  closeMenu(): void {
+    if (!this.menuActive) return;
+    this.menuActive = false;
+    this.callbacks.onMenuClose?.();
+  }
+
+  /** Replace buffer with selected menu item text and optionally submit */
+  replaceBuffer(text: string, submit: boolean): void {
+    this.closeMenu();
+    this.buffer = text.replace(/\x1b/g, "");
+    this.cursorPos = text.length;
+    this.redrawLine();
+    if (submit) {
+      this.submit();
+    }
   }
 
   /** Called by TerminalRenderer to track streaming state */
@@ -181,6 +259,8 @@ export class InputManager {
    * can write block output cleanly. Returns true if anything was cleared.
    */
   suspendAll(): boolean {
+    // Close menu overlay before erasing prompt — overlay would be orphaned
+    this.closeMenu();
     const hadInput = this.inputLineOnScreen;
     const hadSpinner = this.spinnerOnScreen;
     if (!hadInput && !hadSpinner) return false;
@@ -328,6 +408,15 @@ export class InputManager {
   // ── Normal mode ─────────────────────────────────────────────────
 
   private handleNormalData(data: string): void {
+    // When menu is active, suppress keys that the menu handles
+    // (attachCustomKeyEventHandler should prevent these, but guard here too)
+    if (this.menuActive) {
+      if (data === "\r" || data === "\n") return; // Enter → handled by menu select
+      if (data === "\x1b[A" || data === "\x1b[B") return; // Arrow up/down → handled by menu navigate
+      if (data === "\x1b") return; // Escape → handled by menu close
+      if (data === "\t") return; // Tab → handled by menu select
+    }
+
     // Special sequences
     if (data === "\r" || data === "\n") {
       // Enter — submit
@@ -449,6 +538,7 @@ export class InputManager {
   }
 
   private submit(): void {
+    this.closeMenu();
     const text = this.buffer.trim();
     this.historyIdx = -1;
 
@@ -540,6 +630,7 @@ export class InputManager {
           this.terminal.write(text + tail + ERASE_TO_END + (tail.length > 0 ? cursorBack(tail.length) : ""));
         }
         if (this.mode === "processing") this.inputLineOnScreen = true;
+        this.checkMenuTrigger();
         return;
       }
       // Slow path: erase and full redraw (wrapped lines or about to wrap)
@@ -553,6 +644,7 @@ export class InputManager {
     if (this.mode === "processing") {
       this.inputLineOnScreen = true;
     }
+    this.checkMenuTrigger();
   }
 
   private backspace(): void {
@@ -560,58 +652,60 @@ export class InputManager {
     const wasAtEnd = this.cursorPos === this.buffer.length;
     this.buffer = this.buffer.slice(0, this.cursorPos - 1) + this.buffer.slice(this.cursorPos);
     this.cursorPos--;
-    if (this.streamingActive && this.mode === "processing") return; // buffer-only during streaming
+    if (this.streamingActive && this.mode === "processing") { this.checkMenuTrigger(); return; }
     if (this.mode === "processing" && this.buffer.length === 0) {
-      this.redrawLine(); // keep ❯ prompt visible
+      this.redrawLine();
+      this.checkMenuTrigger();
       return;
     }
-    // Fast path: single-line ASCII — wide chars need full redraw for correct cursor math
     if (this.inputRows <= 1 && !/[^\x20-\x7e]/.test(this.buffer)) {
       if (wasAtEnd) {
-        // Delete at end — erase last visible char
         this.terminal.write("\b \b");
       } else {
-        // Delete in middle — rewrite from cursor, erase trailing char
         const tail = this.buffer.slice(this.cursorPos);
         this.terminal.write("\b" + tail + ERASE_TO_END + (tail.length > 0 ? cursorBack(tail.length) : ""));
       }
+      this.checkMenuTrigger();
       return;
     }
     this.redrawLine();
+    this.checkMenuTrigger();
   }
 
   private deleteChar(): void {
     if (this.cursorPos >= this.buffer.length) return;
     this.buffer = this.buffer.slice(0, this.cursorPos) + this.buffer.slice(this.cursorPos + 1);
-    if (this.streamingActive && this.mode === "processing") return; // buffer-only during streaming
+    if (this.streamingActive && this.mode === "processing") { this.checkMenuTrigger(); return; }
     if (this.mode === "processing" && this.buffer.length === 0) {
-      this.redrawLine(); // keep ❯ prompt visible
+      this.redrawLine();
+      this.checkMenuTrigger();
       return;
     }
-    // Fast path: single-line ASCII — wide chars need full redraw for correct cursor math
     if (this.inputRows <= 1 && !/[^\x20-\x7e]/.test(this.buffer)) {
       const tail = this.buffer.slice(this.cursorPos);
       this.terminal.write(tail + ERASE_TO_END + (tail.length > 0 ? cursorBack(tail.length) : ""));
+      this.checkMenuTrigger();
       return;
     }
     this.redrawLine();
+    this.checkMenuTrigger();
   }
 
   private deleteWordBack(): void {
     if (this.cursorPos <= 0) return;
     let pos = this.cursorPos - 1;
-    // Skip trailing spaces
     while (pos > 0 && this.buffer[pos] === " ") pos--;
-    // Skip word chars
     while (pos > 0 && this.buffer[pos - 1] !== " ") pos--;
     this.buffer = this.buffer.slice(0, pos) + this.buffer.slice(this.cursorPos);
     this.cursorPos = pos;
-    if (this.streamingActive && this.mode === "processing") return; // buffer-only during streaming
+    if (this.streamingActive && this.mode === "processing") { this.checkMenuTrigger(); return; }
     if (this.mode === "processing" && this.buffer.length === 0) {
-      this.redrawLine(); // keep ❯ prompt visible
+      this.redrawLine();
+      this.checkMenuTrigger();
       return;
     }
     this.redrawLine();
+    this.checkMenuTrigger();
   }
 
   private moveCursor(delta: number): void {
@@ -766,7 +860,7 @@ export class InputManager {
 
   /** Write prompt + buffer to the terminal and update row tracking */
   private writeInputLine(): void {
-    const prompt = `${fg(this.palette.accent)}${BOLD}${ICON.prompt}${RESET} `;
+    const prompt = `${fg(this.palette.accent)}${BOLD}${this.palette.icons.prompt}${RESET} `;
     this.terminal.write(`${prompt}${this.buffer}`);
     const cols = this.terminal.cols || 80;
     const N = 2 + this.buffer.length; // "❯ " = 2 visible chars
@@ -813,7 +907,7 @@ export class InputManager {
     this.renderSpinner();
     this.spinnerInterval = setInterval(() => {
       if (this.spinnerInterval === null) return; // stale callback guard
-      this.spinnerFrame = (this.spinnerFrame + 1) % SPINNER_FRAMES.length;
+      this.spinnerFrame = (this.spinnerFrame + 1) % this.spinnerFrames.length;
       this.renderSpinner();
     }, 50);
     // Always show input prompt below spinner so user knows they can type
@@ -825,7 +919,7 @@ export class InputManager {
   private renderSpinner(): void {
     const elapsedMs = Date.now() - this.spinnerStartTime;
     const elapsed = Math.floor(elapsedMs / 1000);
-    const frame = SPINNER_FRAMES[this.spinnerFrame];
+    const frame = this.spinnerFrames[this.spinnerFrame];
 
     // Stall detection: after 30s, interpolate accent → red
     const stallT = elapsedMs > InputManager.STALL_THRESHOLD
@@ -899,7 +993,7 @@ export class InputManager {
       this.terminal.write(hint);
     } else {
       // Free-text question — show input prompt
-      const prompt = `${fg(this.palette.accent)}${BOLD}${ICON.prompt}${RESET} `;
+      const prompt = `${fg(this.palette.accent)}${BOLD}${this.palette.icons.prompt}${RESET} `;
       this.terminal.write(`\r\n${prompt}`);
     }
   }

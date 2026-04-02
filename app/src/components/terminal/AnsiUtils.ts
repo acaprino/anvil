@@ -198,11 +198,17 @@ export function inlineMarkdown(text: string, palette: TerminalPalette): string {
     // Bold: **text**
     .replace(/\*\*(.+?)\*\*/g, `${BOLD}$1${BOLD_OFF}`)
     // Italic: *text*
-    .replace(/(?<!\*)\*(?!\*)(.+?)(?<!\*)\*(?!\*)/g, `${ITALIC}$1${ITALIC_OFF}`)
+    .replace(/(?<!\*)\*(?!\*)([^*]+)\*(?!\*)/g, `${ITALIC}$1${ITALIC_OFF}`)
     // Inline code: `code`
     .replace(/`([^`]+)`/g, `${fg(palette.accent)}$1${RESET}`)
-    // URLs → OSC 8 hyperlinks (blue, clickable in xterm.js)
-    .replace(/(https?:\/\/[^\s)>\]]+)/g, `${OSC8_START}$1${OSC8_END}${fg(palette.accent)}${UNDERLINE}$1${RESET}${OSC8_START}${OSC8_END}`)
+    // URLs → OSC 8 hyperlinks (validated, clickable in xterm.js)
+    .replace(/(https?:\/\/[^\s)>\]]+)/g, (_, url) => {
+      try {
+        const parsed = new URL(url);
+        if (parsed.protocol !== "https:" && parsed.protocol !== "http:") return url;
+        return `${OSC8_START}${url}${OSC8_END}${fg(palette.accent)}${UNDERLINE}${url}${RESET}${OSC8_START}${OSC8_END}`;
+      } catch { return url; }
+    })
     // GitHub issue refs: owner/repo#123
     .replace(/\b([\w.-]+\/[\w.-]+)#(\d+)\b/g, (_, repo, num) => {
       const url = `https://github.com/${repo}/issues/${num}`;
@@ -342,8 +348,8 @@ export function formatMarkdownLine(line: string, palette: TerminalPalette): stri
   if (headerMatch) {
     const level = headerMatch[1].length;
     const text = inlineMarkdown(headerMatch[2], palette);
-    if (level === 1) return `\r\n${BOLD}${ITALIC}${UNDERLINE}${text}${RESET}\r\n`;
-    return `\r\n${BOLD}${text}${BOLD_OFF}\r\n`;
+    if (level === 1) return `${BOLD}${ITALIC}${UNDERLINE}${text}${RESET}`;
+    return `${BOLD}${text}${BOLD_OFF}`;
   }
 
   // Block quotes: > text → dim │ italic text
@@ -421,21 +427,112 @@ export function horizontalRule(text: string, cols: number, color: string): strin
   return `${fg(color)}${dash.repeat(sideLen)} ${text} ${dash.repeat(sideLen)}${RESET}`;
 }
 
-// ── Status icons ───────────────────────────────────────────────────
-const SPINNER_CHARS = ["\u00b7", "\u2722", "\u2733", "\u2736", "\u273b", "\u273d"]; // · ✢ ✳ ✶ ✻ ✽
-export const SPINNER_FRAMES = [...SPINNER_CHARS, ...[...SPINNER_CHARS].reverse().slice(1)];
+// ── Icon sets ─────────────────────────────────────────────────────
 
-export const ICON = {
-  pending: "\u25cb",   // ○
-  success: "\u2713",   // ✓
-  fail: "\u2717",      // ✗
-  prompt: "\u276f",    // ❯
-  thinking: "\u25c9",  // ◉
-  warning: "\u26a0",   // ⚠
-  arrow_right: "\u25b8", // ▸
-  arrow_down: "\u25be",  // ▾
-  bullet: "\u25cf",    // ●
-} as const;
+export interface IconSet {
+  pending: string;
+  success: string;
+  fail: string;
+  prompt: string;
+  thinking: string;
+  warning: string;
+  arrow_right: string;
+  arrow_down: string;
+  bullet: string;
+  spinner: string[];
+}
+
+const ICON_PRESETS: Record<string, IconSet> = {
+  default: {
+    pending: "\u25cb",   // ○
+    success: "\u2713",   // ✓
+    fail: "\u2717",      // ✗
+    prompt: "\u276f",    // ❯
+    thinking: "\u25c9",  // ◉
+    warning: "\u26a0",   // ⚠
+    arrow_right: "\u25b8", // ▸
+    arrow_down: "\u25be",  // ▾
+    bullet: "\u25cf",    // ●
+    spinner: ["\u00b7", "\u2722", "\u2733", "\u2736", "\u273b", "\u273d"], // · ✢ ✳ ✶ ✻ ✽
+  },
+  minimal: {
+    pending: "o",
+    success: "+",
+    fail: "x",
+    prompt: ">",
+    thinking: "*",
+    warning: "!",
+    arrow_right: ">",
+    arrow_down: "v",
+    bullet: "*",
+    spinner: ["-", "\\", "|", "/"],
+  },
+  retro: {
+    pending: "\u25a1",   // □
+    success: "\u221a",   // √
+    fail: "\u00d7",      // ×
+    prompt: "\u25ba",    // ►
+    thinking: "\u2666",  // ♦
+    warning: "\u203c",   // ‼
+    arrow_right: "\u25ba", // ►
+    arrow_down: "\u25bc",  // ▼
+    bullet: "\u25a0",    // ■
+    spinner: ["\u2591", "\u2592", "\u2593", "\u2588", "\u2593", "\u2592"], // ░ ▒ ▓ █ ▓ ▒
+  },
+  nerd: {
+    pending: "\uf111",   //  (nf-fa-circle)
+    success: "\uf00c",   //  (nf-fa-check)
+    fail: "\uf00d",      //  (nf-fa-times)
+    prompt: "\ue285",    //  (nf-custom-right_arrow)
+    thinking: "\uf013",  //  (nf-fa-gear)
+    warning: "\uf071",   //  (nf-fa-warning)
+    arrow_right: "\ue0b1", //  (nf-pl-right_soft_divider)
+    arrow_down: "\uf0d7",  //  (nf-fa-caret_down)
+    bullet: "\uf444",    //  (nf-oct-dot_fill)
+    spinner: ["\uf110", "\uf110", "\uf110", "\uf110"], //  spinner
+  },
+  emoji: {
+    pending: "\u23f3",   // ⏳
+    success: "\u2705",   // ✅
+    fail: "\u274c",      // ❌
+    prompt: "\u27a4",    // ➤
+    thinking: "\ud83d\udca1", // 💡
+    warning: "\u26a0\ufe0f",  // ⚠️
+    arrow_right: "\u25b6\ufe0f", // ▶️
+    arrow_down: "\ud83d\udd3d",  // 🔽
+    bullet: "\ud83d\udd35", // 🔵
+    spinner: ["\ud83c\udf00", "\ud83c\udf00", "\ud83c\udf00", "\ud83c\udf00"], // 🌀
+  },
+};
+
+/** Resolve icon set: preset name, custom overrides, or fallback to default */
+export function resolveIconSet(preset?: string, overrides?: Partial<IconSet>): IconSet {
+  if (preset && !ICON_PRESETS[preset]) {
+    console.warn(`Unknown icon preset "${preset}", falling back to "default"`);
+  }
+  const base = ICON_PRESETS[preset || "default"] || ICON_PRESETS.default;
+  if (!overrides) return base;
+  const merged = { ...base, ...overrides };
+  // Sanitize icon strings to prevent escape injection from theme JSON
+  for (const key of Object.keys(merged) as (keyof IconSet)[]) {
+    const val = merged[key];
+    if (typeof val === "string") {
+      (merged as Record<string, unknown>)[key] = val.replace(/\x1b/g, "");
+    } else if (Array.isArray(val)) {
+      (merged as Record<string, unknown>)[key] = val.map(s => s.replace(/\x1b/g, ""));
+    }
+  }
+  return merged;
+}
+
+/** Build spinner frames from an icon set's spinner chars */
+export function buildSpinnerFrames(icons: IconSet): string[] {
+  const chars = Array.isArray(icons.spinner) ? icons.spinner : [icons.spinner as unknown as string];
+  return [...chars, ...[...chars].reverse().slice(1)];
+}
+
+// Default icon set (backward-compatible — used when palette.icons is not available)
+export const ICON = ICON_PRESETS.default;
 
 /** Random spinner verbs — context-aware processing indicators */
 const SPINNER_VERBS = [

@@ -1,7 +1,7 @@
 import type { Block } from "./Block";
 import type { TerminalPalette } from "../themes";
 import type { PermissionSuggestion } from "../../../types";
-import { fg, BOLD, RESET, ICON, sanitizeAgentText } from "../AnsiUtils";
+import { fg, BOLD, RESET, sanitizeAgentText } from "../AnsiUtils";
 
 export class PermissionBlock implements Block {
   readonly type = "permission";
@@ -29,13 +29,13 @@ export class PermissionBlock implements Block {
   render(_cols: number, palette: TerminalPalette): string {
     if (this.resolved) {
       const icon = this.allowed
-        ? `${fg(palette.green)}${ICON.success}${RESET}`
-        : `${fg(palette.red)}${ICON.fail}${RESET}`;
+        ? `${fg(palette.green)}${palette.icons.success}${RESET}`
+        : `${fg(palette.red)}${palette.icons.fail}${RESET}`;
       const label = this.allowed ? "Allowed" : "Denied";
-      return `  ${icon} ${label}: ${this.tool} ${this.description}\r\n`;
+      return `  ${icon} ${label}: ${sanitizeAgentText(this.tool)} ${sanitizeAgentText(this.description)}\r\n`;
     }
 
-    const warn = `${fg(palette.yellow)}${ICON.warning}${RESET}`;
+    const warn = `${fg(palette.yellow)}${palette.icons.warning}${RESET}`;
     const prompt = `${BOLD}Allow ${this.tool}${RESET}: ${sanitizeAgentText(this.description)}`;
     const keys = this.suggestions?.length
       ? `    ${fg(palette.green)}[Y]${RESET}es  ${fg(palette.accent)}[A]${RESET}llow session  ${fg(palette.red)}[N]${RESET}o`
