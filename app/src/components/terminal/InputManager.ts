@@ -450,12 +450,12 @@ export class InputManager {
       }
       const wasProcessing = this.mode === "processing";
       if (!wasProcessing) {
+        // Move below the input line — spinner will render here
         this.terminal.write("\r\n");
         this.setMode("processing");
       } else {
         // Queuing while agent is working — erase old spinner+input, restart
         this.suspendAll();
-        this.terminal.write("\r\n");
         this.startSpinner();
       }
       this.callbacks.onSubmit(text);

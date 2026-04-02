@@ -247,7 +247,11 @@ export class TerminalRenderer {
   private writeStreaming(text: string): void {
     this.inputManager?.notifyOutput();
     const sanitized = sanitizeAgentText(text);
-    const trimmed = sanitized.replace(/[ \t]+$/gm, "");
+    // Trim trailing whitespace per line; strip leading newlines on first chunk
+    let trimmed = sanitized.replace(/[ \t]+$/gm, "");
+    if (this.responseLength === 0) {
+      trimmed = trimmed.replace(/^\n+/, "");
+    }
     const xtermText = trimmed.replace(/\n/g, "\r\n");
     this.terminal.write(xtermText);
     this.lastStreamedEndedWithNewline = trimmed.endsWith("\n");
