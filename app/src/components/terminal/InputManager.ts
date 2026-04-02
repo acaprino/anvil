@@ -181,7 +181,7 @@ export class InputManager {
    * can write block output cleanly. Returns true if anything was cleared.
    */
   suspendAll(): boolean {
-    const hadInput = this.inputLineOnScreen && this.buffer.length > 0;
+    const hadInput = this.inputLineOnScreen;
     const hadSpinner = this.spinnerOnScreen;
     if (!hadInput && !hadSpinner) return false;
 
@@ -229,14 +229,8 @@ export class InputManager {
    */
   resumeAll(): void {
     if (this.mode !== "processing" || this.streamingActive) return;
-    // Restart spinner with animation (not just a single frame)
+    // Restart spinner + input prompt (startSpinner always renders ❯ below)
     this.startSpinner();
-    // Re-render input below spinner (if user has typed something)
-    if (this.buffer.length > 0) {
-      this.writeInputLine();
-      this.positionInputCursor();
-      this.inputLineOnScreen = true;
-    }
   }
 
   dispose(): void {
@@ -271,6 +265,28 @@ export class InputManager {
 
   /** Key events for special keys that onData doesn't provide cleanly */
   private handleKeyEvent(e: KeyboardEvent): void {
+    // Ctrl+Arrow — fast scroll (Up/Down) or word jump (Left/Right)
+    if (e.ctrlKey && e.key.startsWith("Arrow")) {
+      e.preventDefault();
+      if (e.key === "ArrowUp" || e.key === "ArrowDown") {
+        const jump = Math.max(1, Math.floor((this.terminal.rows || 24) / 2));
+        this.terminal.scrollLines(e.key === "ArrowUp" ? -jump : jump);
+      } else if (e.key === "ArrowLeft") {
+        // Jump to start of previous word
+        let pos = this.cursorPos;
+        while (pos > 0 && this.buffer[pos - 1] === " ") pos--;
+        while (pos > 0 && this.buffer[pos - 1] !== " ") pos--;
+        this.moveCursorTo(pos);
+      } else if (e.key === "ArrowRight") {
+        // Jump to end of next word
+        let pos = this.cursorPos;
+        while (pos < this.buffer.length && this.buffer[pos] !== " ") pos++;
+        while (pos < this.buffer.length && this.buffer[pos] === " ") pos++;
+        this.moveCursorTo(pos);
+      }
+      return;
+    }
+
     // Ctrl+C in any mode
     if (e.ctrlKey && e.key === "c") {
       e.preventDefault();
@@ -285,11 +301,10 @@ export class InputManager {
           return;
         }
         if (this.mode === "processing") {
-          // Erase input, spinner stays visible above
-          this.eraseInput();
+          // Clear buffer, redraw empty prompt (keep ❯ visible)
           this.buffer = "";
           this.cursorPos = 0;
-          this.inputLineOnScreen = false;
+          this.redrawLine();
         } else {
           // Normal mode: move to end of wrapped text, then new line + prompt
           const endRow = this.inputRows - 1;
@@ -373,8 +388,7 @@ export class InputManager {
       this.buffer = this.buffer.slice(0, this.cursorPos);
       if (this.streamingActive && this.mode === "processing") return; // buffer-only during streaming
       if (this.mode === "processing" && this.buffer.length === 0) {
-        this.eraseInput();
-        this.inputLineOnScreen = false;
+        this.redrawLine(); // keep ❯ prompt visible
         return;
       }
       // Fast path: single-line — just erase from cursor to end
@@ -396,10 +410,9 @@ export class InputManager {
         return; // buffer-only during streaming
       }
       if (this.mode === "processing") {
-        this.eraseInput();
         this.buffer = "";
         this.cursorPos = 0;
-        this.inputLineOnScreen = false;
+        this.redrawLine(); // keep ❯ prompt visible
         return;
       }
       this.buffer = "";
@@ -437,15 +450,15 @@ export class InputManager {
 
   private submit(): void {
     const text = this.buffer.trim();
-    this.buffer = "";
-    this.cursorPos = 0;
     this.historyIdx = -1;
-    this.inputLineOnScreen = false;
-    this.inputRows = 1;
-    this.inputCursorRow = 0;
 
     // During streaming, submit silently — don't write to terminal or start spinner
     if (this.streamingActive && this.mode === "processing") {
+      this.buffer = "";
+      this.cursorPos = 0;
+      this.inputLineOnScreen = false;
+      this.inputRows = 1;
+      this.inputCursorRow = 0;
       if (text) {
         if (this.history.length === 0 || this.history[this.history.length - 1] !== text) {
           this.history.push(text);
@@ -464,16 +477,29 @@ export class InputManager {
       }
       const wasProcessing = this.mode === "processing";
       if (!wasProcessing) {
+        this.buffer = "";
+        this.cursorPos = 0;
+        this.inputLineOnScreen = false;
+        this.inputRows = 1;
+        this.inputCursorRow = 0;
         // Move below the input line — spinner will render here
         this.terminal.write("\r\n");
         this.setMode("processing");
       } else {
-        // Queuing while agent is working — erase old spinner+input, restart
+        // Queuing while agent is working — suspendAll needs current tracking state
+        // to properly erase spinner + input from screen
         this.suspendAll();
+        this.buffer = "";
+        this.cursorPos = 0;
         this.startSpinner();
       }
       this.callbacks.onSubmit(text);
     } else {
+      this.buffer = "";
+      this.cursorPos = 0;
+      this.inputLineOnScreen = false;
+      this.inputRows = 1;
+      this.inputCursorRow = 0;
       this.terminal.write("\r\n");
     }
   }
@@ -487,9 +513,10 @@ export class InputManager {
       return;
     }
 
-    // If typing while processing, input appears BELOW the spinner (spinner stays visible).
-    // Cursor is already on the line below the spinner (2-line spinner layout).
+    // First char during processing — prompt ❯ is already on screen (rendered by startSpinner).
+    // Erase it so the full redraw below rewrites with the new buffer content.
     if (this.mode === "processing" && this.buffer.length === 0) {
+      if (this.inputLineOnScreen) this.eraseInput();
       this.inputRows = 1;
       this.inputCursorRow = 0;
     } else {
@@ -535,9 +562,7 @@ export class InputManager {
     this.cursorPos--;
     if (this.streamingActive && this.mode === "processing") return; // buffer-only during streaming
     if (this.mode === "processing" && this.buffer.length === 0) {
-      // Cleared all text — erase input, spinner stays visible above
-      this.eraseInput();
-      this.inputLineOnScreen = false;
+      this.redrawLine(); // keep ❯ prompt visible
       return;
     }
     // Fast path: single-line ASCII — wide chars need full redraw for correct cursor math
@@ -560,8 +585,7 @@ export class InputManager {
     this.buffer = this.buffer.slice(0, this.cursorPos) + this.buffer.slice(this.cursorPos + 1);
     if (this.streamingActive && this.mode === "processing") return; // buffer-only during streaming
     if (this.mode === "processing" && this.buffer.length === 0) {
-      this.eraseInput();
-      this.inputLineOnScreen = false;
+      this.redrawLine(); // keep ❯ prompt visible
       return;
     }
     // Fast path: single-line ASCII — wide chars need full redraw for correct cursor math
@@ -584,8 +608,7 @@ export class InputManager {
     this.cursorPos = pos;
     if (this.streamingActive && this.mode === "processing") return; // buffer-only during streaming
     if (this.mode === "processing" && this.buffer.length === 0) {
-      this.eraseInput();
-      this.inputLineOnScreen = false;
+      this.redrawLine(); // keep ❯ prompt visible
       return;
     }
     this.redrawLine();
@@ -793,6 +816,10 @@ export class InputManager {
       this.spinnerFrame = (this.spinnerFrame + 1) % SPINNER_FRAMES.length;
       this.renderSpinner();
     }, 50);
+    // Always show input prompt below spinner so user knows they can type
+    this.writeInputLine();
+    this.positionInputCursor();
+    this.inputLineOnScreen = true;
   }
 
   private renderSpinner(): void {

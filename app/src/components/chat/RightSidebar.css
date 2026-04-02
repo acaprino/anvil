@@ -223,9 +223,9 @@
 
 .bookmark-text {
   flex: 1;
-  overflow: hidden;
-  text-overflow: ellipsis;
-  white-space: nowrap;
+  overflow-wrap: break-word;
+  word-break: break-word;
+  min-width: 0;
   line-height: 1.5;
 }
 
@@ -350,9 +350,9 @@
 
 .thinking-entry-preview {
   flex: 1;
-  overflow: hidden;
-  text-overflow: ellipsis;
-  white-space: nowrap;
+  overflow-wrap: break-word;
+  word-break: break-word;
+  min-width: 0;
 }
 
 .thinking-entry-toggle { opacity: 0.4; }
@@ -492,9 +492,9 @@
 
 .agent-task-name {
   flex: 1;
-  overflow: hidden;
-  text-overflow: ellipsis;
-  white-space: nowrap;
+  overflow-wrap: break-word;
+  word-break: break-word;
+  min-width: 0;
   color: var(--text);
   font-weight: 600;
 }
@@ -512,9 +512,9 @@
   font-size: var(--text-xs);
   padding-left: 18px;
   margin-top: 2px;
-  overflow: hidden;
-  text-overflow: ellipsis;
-  white-space: nowrap;
+  overflow-wrap: break-word;
+  word-break: break-word;
+  min-width: 0;
 }
 
 .agent-task-stats {

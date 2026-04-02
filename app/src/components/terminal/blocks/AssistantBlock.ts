@@ -1,6 +1,6 @@
 import type { Block } from "./Block";
 import type { TerminalPalette } from "../themes";
-import { RESET, wordWrap, inlineMarkdown, fg, sanitizeAgentText } from "../AnsiUtils";
+import { RESET, wordWrap, formatMarkdownLine, fg, highlightCode, sanitizeAgentText } from "../AnsiUtils";
 
 export class AssistantBlock implements Block {
   readonly type = "assistant";
@@ -24,12 +24,11 @@ export class AssistantBlock implements Block {
 
   render(cols: number, palette: TerminalPalette): string {
     const sanitized = sanitizeAgentText(this.text).replace(/\s+$/, "");
-    const formatted = inlineMarkdown(sanitized, palette);
     const lines: string[] = [];
     let inCodeBlock = false;
     let codeLang = "";
 
-    for (const rawLine of formatted.split("\n")) {
+    for (const rawLine of sanitized.split("\n")) {
       if (rawLine.startsWith("```")) {
         if (!inCodeBlock) {
           inCodeBlock = true;
@@ -44,9 +43,10 @@ export class AssistantBlock implements Block {
       }
 
       if (inCodeBlock) {
-        lines.push(`${fg(palette.accent)}  ${rawLine}${RESET}`);
+        lines.push(`  ${highlightCode(rawLine, palette)}`);
       } else {
-        const wrapped = wordWrap(rawLine, cols - 1);
+        const formatted = formatMarkdownLine(rawLine, palette);
+        const wrapped = wordWrap(formatted, cols - 1);
         lines.push(...wrapped);
       }
     }

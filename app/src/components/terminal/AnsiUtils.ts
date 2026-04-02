@@ -20,6 +20,10 @@ export const BOLD_OFF = `${CSI}22m`;
 export const ITALIC_OFF = `${CSI}23m`;
 export const UNDERLINE_OFF = `${CSI}24m`;
 
+// ── OSC 8 Hyperlinks ──────────────────────────────────────────────
+const OSC8_START = `${ESC}]8;;`;
+const OSC8_END = "\x07";
+
 /** Parse hex color (#RRGGBB or #RGB) to [r, g, b] */
 function hexToRgb(hex: string): [number, number, number] {
   const h = hex.replace("#", "");
@@ -196,7 +200,202 @@ export function inlineMarkdown(text: string, palette: TerminalPalette): string {
     // Italic: *text*
     .replace(/(?<!\*)\*(?!\*)(.+?)(?<!\*)\*(?!\*)/g, `${ITALIC}$1${ITALIC_OFF}`)
     // Inline code: `code`
-    .replace(/`([^`]+)`/g, `${fg(palette.accent)}$1${RESET}`);
+    .replace(/`([^`]+)`/g, `${fg(palette.accent)}$1${RESET}`)
+    // URLs → OSC 8 hyperlinks (blue, clickable in xterm.js)
+    .replace(/(https?:\/\/[^\s)>\]]+)/g, `${OSC8_START}$1${OSC8_END}${fg(palette.accent)}${UNDERLINE}$1${RESET}${OSC8_START}${OSC8_END}`)
+    // GitHub issue refs: owner/repo#123
+    .replace(/\b([\w.-]+\/[\w.-]+)#(\d+)\b/g, (_, repo, num) => {
+      const url = `https://github.com/${repo}/issues/${num}`;
+      return `${OSC8_START}${url}${OSC8_END}${fg(palette.accent)}${repo}#${num}${RESET}${OSC8_START}${OSC8_END}`;
+    });
+}
+
+// ── Code syntax highlighting ──────────────────────────────────────
+
+const KEYWORDS = new Set([
+  // JS/TS
+  "function","const","let","var","if","else","for","while","do","return",
+  "import","export","from","class","extends","new","this","typeof","instanceof",
+  "async","await","try","catch","finally","throw","switch","case","break",
+  "continue","default","yield","static","interface","type","enum",
+  // Rust
+  "struct","impl","fn","pub","mod","use","match","mut","ref","trait","where","crate","super",
+  // Python
+  "def","self","lambda","with","as","in","not","and","or","elif","pass","raise","except",
+  // Go
+  "func","package","go","defer","chan","select","range","map","make",
+  // Common values
+  "true","false","null","undefined","void","None","True","False",
+  "int","float","string","bool","boolean",
+]);
+
+/**
+ * Simple syntax highlighter for code blocks.
+ * Tokenizes strings/comments first, then colors keywords/numbers in code.
+ */
+export function highlightCode(line: string, palette: TerminalPalette): string {
+  // Full-line comment (// or #)
+  const commentMatch = line.match(/^(\s*)(\/\/.*|#.*)$/);
+  if (commentMatch) {
+    return `${commentMatch[1]}${DIM}${commentMatch[2]}${RESET}`;
+  }
+
+  // Tokenize: split into strings, comments, and code segments
+  const result: string[] = [];
+  let i = 0;
+  while (i < line.length) {
+    const ch = line[i];
+
+    // String literals
+    if (ch === '"' || ch === "'" || ch === '`') {
+      const quote = ch;
+      let j = i + 1;
+      while (j < line.length && line[j] !== quote) {
+        if (line[j] === '\\') j++; // skip escaped
+        j++;
+      }
+      j = Math.min(j + 1, line.length);
+      result.push(`${fg(palette.green)}${line.slice(i, j)}${RESET}`);
+      i = j;
+      continue;
+    }
+
+    // Inline comment //
+    if (ch === '/' && line[i + 1] === '/') {
+      result.push(`${DIM}${line.slice(i)}${RESET}`);
+      break;
+    }
+
+    // Number literal
+    if (/\d/.test(ch) && (i === 0 || /[\s,([{=+\-*/<>!&|^~%:]/.test(line[i - 1]))) {
+      let j = i;
+      while (j < line.length && /[\d.xXa-fA-F_]/.test(line[j])) j++;
+      result.push(`${fg(palette.yellow)}${line.slice(i, j)}${RESET}`);
+      i = j;
+      continue;
+    }
+
+    // Word (potential keyword)
+    if (/[a-zA-Z_$]/.test(ch)) {
+      let j = i;
+      while (j < line.length && /[\w$]/.test(line[j])) j++;
+      const word = line.slice(i, j);
+      if (KEYWORDS.has(word)) {
+        result.push(`${fg(palette.accent)}${word}${RESET}`);
+      } else {
+        result.push(word);
+      }
+      i = j;
+      continue;
+    }
+
+    result.push(ch);
+    i++;
+  }
+  return result.join("");
+}
+
+// ── List numbering helpers (matching CLI) ─────────────────────────
+
+function numberToLetter(n: number): string {
+  let result = "";
+  while (n > 0) {
+    n--;
+    result = String.fromCharCode(97 + (n % 26)) + result;
+    n = Math.floor(n / 26);
+  }
+  return result;
+}
+
+const ROMAN_VALUES: ReadonlyArray<[number, string]> = [
+  [1000,"m"],[900,"cm"],[500,"d"],[400,"cd"],[100,"c"],[90,"xc"],
+  [50,"l"],[40,"xl"],[10,"x"],[9,"ix"],[5,"v"],[4,"iv"],[1,"i"],
+];
+
+function numberToRoman(n: number): string {
+  let result = "";
+  for (const [value, numeral] of ROMAN_VALUES) {
+    while (n >= value) { result += numeral; n -= value; }
+  }
+  return result;
+}
+
+/** Format ordered list number by depth: numbers → letters → roman numerals */
+export function getListNumber(depth: number, num: number): string {
+  switch (depth) {
+    case 0: case 1: return num.toString();
+    case 2: return numberToLetter(num);
+    case 3: return numberToRoman(num);
+    default: return num.toString();
+  }
+}
+
+/**
+ * Format a single line of markdown into ANSI.
+ * Matches Claude Code CLI rendering: headers (bold), lists (- prefix),
+ * block quotes (│ dim), tables (| aligned), and inline formatting.
+ */
+export function formatMarkdownLine(line: string, palette: TerminalPalette): string {
+  // Headers: # text, ## text, ### text
+  // CLI: H1 = bold+italic+underline, H2+ = bold, all followed by blank line
+  const headerMatch = line.match(/^(#{1,6})\s+(.+)/);
+  if (headerMatch) {
+    const level = headerMatch[1].length;
+    const text = inlineMarkdown(headerMatch[2], palette);
+    if (level === 1) return `\r\n${BOLD}${ITALIC}${UNDERLINE}${text}${RESET}\r\n`;
+    return `\r\n${BOLD}${text}${BOLD_OFF}\r\n`;
+  }
+
+  // Block quotes: > text → dim │ italic text
+  const quoteMatch = line.match(/^(\s*)>\s?(.*)/);
+  if (quoteMatch) {
+    const inner = quoteMatch[2];
+    if (!inner.trim()) return `${DIM}\u2502${RESET}`;
+    const text = inlineMarkdown(inner, palette);
+    return `${DIM}\u2502${RESET} ${ITALIC}${text}${ITALIC_OFF}`;
+  }
+
+  // Bullet lists: - text or * text (with optional indent)
+  // CLI uses simple "-" prefix with indentation
+  const bulletMatch = line.match(/^(\s*)([-*])\s+(.+)/);
+  if (bulletMatch) {
+    const indent = bulletMatch[1];
+    const text = inlineMarkdown(bulletMatch[3], palette);
+    return `${indent}- ${text}`;
+  }
+
+  // Numbered lists: 1. text — with depth-based numbering (numbers → letters → roman)
+  const numMatch = line.match(/^(\s*)(\d+)\.\s+(.+)/);
+  if (numMatch) {
+    const indent = numMatch[1];
+    const num = parseInt(numMatch[2], 10);
+    const depth = Math.floor(indent.length / 2);
+    const label = getListNumber(depth, num);
+    const text = inlineMarkdown(numMatch[3], palette);
+    return `${indent}${label}. ${text}`;
+  }
+
+  // Horizontal rule: ---, ***, ___
+  if (/^(\s*)([-*_])\2{2,}\s*$/.test(line)) {
+    return `${DIM}${"─".repeat(40)}${RESET}`;
+  }
+
+  // Table separator: |---|---|
+  if (/^\|[\s\-:|]+\|$/.test(line)) {
+    // Calculate separator width from column count
+    const cols = line.split("|").length - 2;
+    const sep = "-".repeat(cols > 0 ? Math.max(3, Math.floor(40 / cols)) : 10);
+    return `|${Array(cols).fill(sep).map(s => `-${s}-`).join("|")}|`;
+  }
+
+  // Table row: | cell | cell |
+  if (line.startsWith("|") && line.endsWith("|")) {
+    const cells = line.slice(1, -1).split("|").map(c => ` ${inlineMarkdown(c.trim(), palette)} `);
+    return `|${cells.join("|")}|`;
+  }
+
+  // Regular line: inline markdown only
+  return inlineMarkdown(line, palette);
 }
 
 // ── Diff formatting ────────────────────────────────────────────────

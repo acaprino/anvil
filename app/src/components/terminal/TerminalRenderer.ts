@@ -14,7 +14,7 @@ import type { ToolBlock } from "./blocks/ToolBlock";
 import type { TerminalDocument, DocumentEvent } from "./TerminalDocument";
 import type { TerminalPalette } from "./themes";
 import type { InputManager } from "./InputManager";
-import { CURSOR_SAVE, CURSOR_RESTORE, cursorUp, ERASE_LINE, sanitizeAgentText } from "./AnsiUtils";
+import { CURSOR_SAVE, CURSOR_RESTORE, cursorUp, cursorDown, ERASE_LINE, sanitizeAgentText, formatMarkdownLine } from "./AnsiUtils";
 
 export class TerminalRenderer {
   private cols: number;
@@ -31,6 +31,10 @@ export class TerminalRenderer {
   private suspendedForStreaming = false;
   /** Approximate response length for token estimation (responseLength / 4 ≈ tokens) */
   private responseLength = 0;
+  /** Buffer for current incomplete line during streaming (for markdown formatting) */
+  private streamLineBuffer = "";
+  /** Visible columns written for current partial line (for multi-row erase) */
+  private streamPartialCols = 0;
 
   constructor(
     private terminal: Terminal,
@@ -119,6 +123,8 @@ export class TerminalRenderer {
     if (block.type === "assistant" && (block as { streaming?: boolean }).streaming) {
       this.streamingActive = true;
       this.responseLength = 0;
+      this.streamLineBuffer = "";
+      this.streamPartialCols = 0;
       this.inputManager?.setStreamingActive(true);
       this.inputManager?.setSpinnerVerb("Responding...");
       this.document.commitBlockLines(block, 0);
@@ -247,19 +253,45 @@ export class TerminalRenderer {
     }
   }
 
-  /** Write streaming text directly to terminal (sanitized) */
+  /** Write streaming text directly to terminal with markdown formatting */
   private writeStreaming(text: string): void {
     this.inputManager?.notifyOutput();
     const sanitized = sanitizeAgentText(text);
-    // Trim trailing whitespace per line; strip leading newlines on first chunk
     let trimmed = sanitized.replace(/[ \t]+$/gm, "");
     if (this.responseLength === 0) {
       trimmed = trimmed.replace(/^\n+/, "");
     }
-    const xtermText = trimmed.replace(/\n/g, "\r\n");
-    this.terminal.write(xtermText);
+
+    // Line-buffer approach: accumulate text until newline, then format the complete line.
+    // Partial lines are written raw; when completed by a newline the raw text is erased
+    // (handling multi-row wrap) and replaced with the formatted version.
+    const lines = trimmed.split("\n");
+    for (let i = 0; i < lines.length; i++) {
+      this.streamLineBuffer += lines[i];
+
+      if (i < lines.length - 1) {
+        // Line complete — erase raw partial (may span multiple terminal rows), write formatted
+        const partialRows = Math.max(1, Math.ceil(this.streamPartialCols / this.cols));
+        if (partialRows > 1) this.terminal.write(cursorUp(partialRows - 1));
+        for (let r = 0; r < partialRows; r++) {
+          this.terminal.write(`\r${ERASE_LINE}`);
+          if (r < partialRows - 1) this.terminal.write(cursorDown(1));
+        }
+        if (partialRows > 1) this.terminal.write(cursorUp(partialRows - 1));
+        this.terminal.write("\r");
+
+        const formatted = formatMarkdownLine(this.streamLineBuffer, this.palette);
+        this.terminal.write(formatted + "\r\n");
+        this.streamLineBuffer = "";
+        this.streamPartialCols = 0;
+      } else if (lines[i].length > 0) {
+        // Partial line — write raw chars (will be reformatted on newline)
+        this.terminal.write(lines[i]);
+        this.streamPartialCols += lines[i].length;
+      }
+    }
+
     this.lastStreamedEndedWithNewline = trimmed.endsWith("\n");
-    // Track response length for token estimation (length/4 ≈ tokens)
     this.responseLength += text.length;
     this.inputManager?.setTokenCount(Math.round(this.responseLength / 4));
   }
@@ -269,6 +301,22 @@ export class TerminalRenderer {
     this.streamingActive = false;
     this.inputManager?.setStreamingActive(false);
     this.inputManager?.setSpinnerVerb("Thinking...");
+
+    // Format last partial line that wasn't completed by a newline
+    if (this.streamLineBuffer.length > 0) {
+      const partialRows = Math.max(1, Math.ceil(this.streamPartialCols / this.cols));
+      if (partialRows > 1) this.terminal.write(cursorUp(partialRows - 1));
+      for (let r = 0; r < partialRows; r++) {
+        this.terminal.write(`\r${ERASE_LINE}`);
+        if (r < partialRows - 1) this.terminal.write(cursorDown(1));
+      }
+      if (partialRows > 1) this.terminal.write(cursorUp(partialRows - 1));
+      this.terminal.write("\r");
+      const formatted = formatMarkdownLine(this.streamLineBuffer, this.palette);
+      this.terminal.write(formatted);
+      this.streamLineBuffer = "";
+      this.streamPartialCols = 0;
+    }
 
     if (!this.lastStreamedEndedWithNewline) {
       this.terminal.write("\r\n");
