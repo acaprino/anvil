@@ -116,11 +116,7 @@ async function withTabLock(tabId, fn) {
 const _latestAutocompleteSeq = new Map();
 // ── Command handlers ────────────────────────────────────────────────
 async function handleCreate(cmd) {
-    const { tabId, cwd, model, effort, systemPrompt, permMode, skipPerms, allowedTools, plugins, apiBaseUrl, agentName } = cmd;
-    // Enable experimental Agent Teams only when agent features are requested
-    if (agentName) {
-        process.env.CLAUDE_CODE_EXPERIMENTAL_AGENT_TEAMS = "true";
-    }
+    const { tabId, cwd, model, effort, systemPrompt, permMode, skipPerms, allowedTools, plugins, apiBaseUrl } = cmd;
     if (sessions.has(tabId)) {
         // Kill existing session (React 18 StrictMode sends create→create→kill)
         log(`Replacing existing session for tab ${tabId}`);
@@ -285,9 +281,6 @@ async function handleCreate(cmd) {
     }
     if (plugins && plugins.length > 0) {
         options.plugins = plugins.map(p => ({ type: 'local', path: p }));
-    }
-    if (agentName) {
-        options.agent = agentName;
     }
     // Intercept AskUserQuestion tool to route to Figtree UI
     options.hooks = {
