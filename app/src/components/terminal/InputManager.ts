@@ -16,7 +16,7 @@ export interface InputManagerCallbacks {
   onPermissionRespond: (toolUseId: string, allow: boolean, suggestions?: PermissionSuggestion[]) => void;
   onAskRespond: (answers: Record<string, string>) => void;
   onAutocomplete: (input: string) => Promise<string[]>;
-  onMenuOpen?: (type: "command" | "mention", filter: string) => void;
+  onMenuOpen?: (type: "command" | "mention", filter: string, cursorY: number) => void;
   onMenuClose?: () => void;
   onMenuNavigate?: (direction: number) => void;
   onMenuSelect?: () => void;
@@ -95,6 +95,8 @@ export class InputManager {
       terminal.onData((data) => this.handleData(data)),
       terminal.onKey(({ domEvent }) => this.handleKeyEvent(domEvent)),
     );
+    // Show initial spinner + prompt so user sees ❯ immediately
+    this.startSpinner();
   }
 
   // ── Public API ──────────────────────────────────────────────────
@@ -181,7 +183,7 @@ export class InputManager {
 
     if (this.buffer.startsWith("/")) {
       this.menuActive = true;
-      this.callbacks.onMenuOpen?.("command", this.buffer);
+      this.callbacks.onMenuOpen?.("command", this.buffer, this.getMenuCursorY());
     } else if (this.buffer.includes("@")) {
       const atIdx = this.buffer.lastIndexOf("@");
       // Only trigger on word boundary (start of buffer or preceded by space)
@@ -192,13 +194,23 @@ export class InputManager {
       const afterAt = this.buffer.slice(atIdx);
       if (!/\s/.test(afterAt.slice(1)) || afterAt.length <= 1) {
         this.menuActive = true;
-        this.callbacks.onMenuOpen?.("mention", afterAt);
+        this.callbacks.onMenuOpen?.("mention", afterAt, this.getMenuCursorY());
       } else if (this.menuActive) {
         this.closeMenu();
       }
     } else if (this.menuActive) {
       this.closeMenu();
     }
+  }
+
+  /** Pixel Y position below the input's last row, for menu positioning */
+  private getMenuCursorY(): number {
+    const viewportCursorY = this.terminal.buffer.active.cursorY;
+    const rowsBelowCursor = this.inputRows - 1 - this.inputCursorRow;
+    const inputBottomRow = viewportCursorY + rowsBelowCursor;
+    const containerEl = this.terminal.element;
+    const cellHeight = containerEl ? containerEl.clientHeight / this.terminal.rows : 20;
+    return (inputBottomRow + 1) * cellHeight;
   }
 
   /** Close the menu */

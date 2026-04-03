@@ -64,6 +64,7 @@ export default memo(function XTermView(props: SessionViewProps) {
   const [menuType, setMenuType] = useState<"command" | "mention">("command");
   const [menuFilter, setMenuFilter] = useState("");
   const [menuSelectedIdx, setMenuSelectedIdx] = useState(0);
+  const [menuTop, setMenuTop] = useState(0);
 
   // ── Refs ──
   const containerRef = useRef<HTMLDivElement>(null);
@@ -175,9 +176,10 @@ export default memo(function XTermView(props: SessionViewProps) {
           return [];
         }
       },
-      onMenuOpen: (type, filter) => {
+      onMenuOpen: (type, filter, cursorY) => {
         setMenuType(type);
         setMenuFilter(filter);
+        setMenuTop(cursorY);
         setMenuOpen(true);
         setMenuSelectedIdx(0);
       },
@@ -405,9 +407,17 @@ export default memo(function XTermView(props: SessionViewProps) {
           className="xterm-container"
           style={{ flex: 1, overflow: "hidden", position: "relative" }}
         >
-          {/* Command/mention menu overlay */}
-          {menuOpen && menuItems.length > 0 && (
-            <div className="terminal-menu" role="listbox">
+          {/* Command/mention menu overlay — positioned inline below cursor */}
+          {menuOpen && menuItems.length > 0 && (() => {
+            const containerH = containerRef.current?.clientHeight ?? 600;
+            const maxH = 280;
+            const spaceBelow = containerH - menuTop;
+            const flipAbove = spaceBelow < Math.min(maxH, 120);
+            const menuStyle: React.CSSProperties = flipAbove
+              ? { bottom: containerH - menuTop + 4, maxHeight: Math.min(maxH, menuTop - 8) }
+              : { top: menuTop + 4, maxHeight: Math.min(maxH, spaceBelow - 8) };
+            return (
+            <div className="terminal-menu" role="listbox" style={menuStyle}>
               {menuSections.map((section) => {
                 const sectionStartIdx = menuItems.indexOf(section.items[0]);
                 return (
@@ -439,7 +449,8 @@ export default memo(function XTermView(props: SessionViewProps) {
                 );
               })}
             </div>
-          )}
+            );
+          })()}
         </div>
         {sessionPanelOpen && onCloseSessionPanel && onResumeSession && onForkSession && (
           <SessionPanel
