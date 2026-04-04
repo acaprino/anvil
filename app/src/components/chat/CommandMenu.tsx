@@ -1,4 +1,4 @@
-import { memo, useState, useEffect, useLayoutEffect, useRef, useMemo } from "react";
+import { memo, useState, useEffect, useLayoutEffect, useRef, useMemo, forwardRef, useImperativeHandle } from "react";
 import { createPortal } from "react-dom";
 import type { SlashCommand } from "../../types";
 
@@ -31,8 +31,14 @@ interface Props {
   onDismiss: () => void;
 }
 
-export default memo(function CommandMenu({ filter, sdkCommands = [], onSelect, onDismiss }: Props) {
+export interface CommandMenuHandle {
+  handleKeyDown: (key: string) => void;
+}
+
+export default memo(forwardRef<CommandMenuHandle, Props>(function CommandMenu({ filter, sdkCommands = [], onSelect, onDismiss }: Props, ref) {
   const [selectedIdx, setSelectedIdx] = useState(0);
+  const selectedIdxRef = useRef(0);
+  selectedIdxRef.current = selectedIdx;
   const listRef = useRef<HTMLDivElement>(null);
   const wrapperRef = useRef<HTMLDivElement>(null);
   const [style, setStyle] = useState<React.CSSProperties>({ visibility: "hidden", position: "fixed" });
@@ -88,25 +94,27 @@ export default memo(function CommandMenu({ filter, sdkCommands = [], onSelect, o
     return () => window.removeEventListener("resize", update);
   }, [selectableItems.length]);
 
-  useEffect(() => {
-    const handleKey = (e: KeyboardEvent) => {
-      if (e.key === "ArrowDown") {
-        e.preventDefault();
-        setSelectedIdx((i) => Math.min(i + 1, selectableItems.length - 1));
-      } else if (e.key === "ArrowUp") {
-        e.preventDefault();
+  // Refs for stable imperative handle
+  const selectableRef = useRef(selectableItems);
+  selectableRef.current = selectableItems;
+  const onSelectRef = useRef(onSelect);
+  onSelectRef.current = onSelect;
+  const onDismissRef = useRef(onDismiss);
+  onDismissRef.current = onDismiss;
+
+  useImperativeHandle(ref, () => ({
+    handleKeyDown: (key: string) => {
+      if (key === "ArrowDown") {
+        setSelectedIdx((i) => Math.min(i + 1, selectableRef.current.length - 1));
+      } else if (key === "ArrowUp") {
         setSelectedIdx((i) => Math.max(i - 1, 0));
-      } else if (e.key === "Enter" && selectableItems.length > 0) {
-        e.preventDefault();
-        onSelect(selectableItems[selectedIdx]);
-      } else if (e.key === "Escape") {
-        e.preventDefault();
-        onDismiss();
+      } else if (key === "Enter" && selectableRef.current.length > 0) {
+        onSelectRef.current(selectableRef.current[selectedIdxRef.current]);
+      } else if (key === "Escape") {
+        onDismissRef.current();
       }
-    };
-    document.addEventListener("keydown", handleKey);
-    return () => document.removeEventListener("keydown", handleKey);
-  }, [selectableItems, selectedIdx, onSelect, onDismiss]);
+    }
+  }), []);
 
   useEffect(() => {
     const el = listRef.current?.querySelector(".command-item.selected") as HTMLElement | null;
@@ -181,4 +189,4 @@ export default memo(function CommandMenu({ filter, sdkCommands = [], onSelect, o
       {createPortal(menu, document.body)}
     </>
   );
-});
+}));

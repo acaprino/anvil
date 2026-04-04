@@ -1,4 +1,4 @@
-import { memo, useState, useEffect, useLayoutEffect, useRef, useMemo } from "react";
+import { memo, useState, useEffect, useLayoutEffect, useRef, useMemo, forwardRef, useImperativeHandle } from "react";
 import { createPortal } from "react-dom";
 import type { AgentInfoSDK } from "../../types";
 
@@ -14,8 +14,14 @@ interface Props {
   onDismiss: () => void;
 }
 
-export default memo(function MentionMenu({ filter, agents = [], onSelect, onDismiss }: Props) {
+export interface MentionMenuHandle {
+  handleKeyDown: (key: string) => void;
+}
+
+export default memo(forwardRef<MentionMenuHandle, Props>(function MentionMenu({ filter, agents = [], onSelect, onDismiss }: Props, ref) {
   const [selectedIdx, setSelectedIdx] = useState(0);
+  const selectedIdxRef = useRef(0);
+  selectedIdxRef.current = selectedIdx;
   const listRef = useRef<HTMLDivElement>(null);
   const wrapperRef = useRef<HTMLDivElement>(null);
   const [style, setStyle] = useState<React.CSSProperties>({ visibility: "hidden", position: "fixed" });
@@ -59,25 +65,26 @@ export default memo(function MentionMenu({ filter, agents = [], onSelect, onDism
     return () => window.removeEventListener("resize", update);
   }, [filtered.length]);
 
-  useEffect(() => {
-    const handleKey = (e: KeyboardEvent) => {
-      if (e.key === "ArrowDown") {
-        e.preventDefault();
-        setSelectedIdx((i) => Math.min(i + 1, filtered.length - 1));
-      } else if (e.key === "ArrowUp") {
-        e.preventDefault();
+  const filteredRef = useRef(filtered);
+  filteredRef.current = filtered;
+  const onSelectRef = useRef(onSelect);
+  onSelectRef.current = onSelect;
+  const onDismissRef = useRef(onDismiss);
+  onDismissRef.current = onDismiss;
+
+  useImperativeHandle(ref, () => ({
+    handleKeyDown: (key: string) => {
+      if (key === "ArrowDown") {
+        setSelectedIdx((i) => Math.min(i + 1, filteredRef.current.length - 1));
+      } else if (key === "ArrowUp") {
         setSelectedIdx((i) => Math.max(i - 1, 0));
-      } else if (e.key === "Enter" && filtered.length > 0) {
-        e.preventDefault();
-        onSelect(filtered[selectedIdx]);
-      } else if (e.key === "Escape") {
-        e.preventDefault();
-        onDismiss();
+      } else if (key === "Enter" && filteredRef.current.length > 0) {
+        onSelectRef.current(filteredRef.current[selectedIdxRef.current]);
+      } else if (key === "Escape") {
+        onDismissRef.current();
       }
-    };
-    document.addEventListener("keydown", handleKey);
-    return () => document.removeEventListener("keydown", handleKey);
-  }, [filtered, selectedIdx, onSelect, onDismiss]);
+    }
+  }), []);
 
   useEffect(() => {
     const el = listRef.current?.children[selectedIdx] as HTMLElement | undefined;
@@ -108,4 +115,4 @@ export default memo(function MentionMenu({ filter, agents = [], onSelect, onDism
       {createPortal(menu, document.body)}
     </>
   );
-});
+}));

@@ -4,8 +4,8 @@ import { convertFileSrc } from "@tauri-apps/api/core";
 import { sanitizeInput } from "../../utils/sanitizeInput";
 import { saveClipboardImage } from "../../hooks/useAgentSession";
 import AttachmentChip from "./AttachmentChip";
-import CommandMenu, { type Command } from "./CommandMenu";
-import MentionMenu, { type Mention } from "./MentionMenu";
+import CommandMenu, { type Command, type CommandMenuHandle } from "./CommandMenu";
+import MentionMenu, { type Mention, type MentionMenuHandle } from "./MentionMenu";
 import type { Attachment, SlashCommand, AgentInfoSDK } from "../../types";
 import "./ChatInput.css";
 
@@ -44,6 +44,8 @@ function ChatInputInner({ onSubmit, onCommand, processing, isActive, inputStyle 
   const [showMentionMenu, setShowMentionMenu] = useState(false);
   const [menuFilter, setMenuFilter] = useState("");
   const textareaRef = useRef<HTMLTextAreaElement>(null);
+  const commandMenuRef = useRef<CommandMenuHandle>(null);
+  const mentionMenuRef = useRef<MentionMenuHandle>(null);
 
   useImperativeHandle(ref, () => ({
     focus() { textareaRef.current?.focus(); },
@@ -157,10 +159,13 @@ function ChatInputInner({ onSubmit, onCommand, processing, isActive, inputStyle 
       return;
     }
 
-    // Let menus handle arrow keys and Enter when open
+    // Forward menu keys via ref — single handler, no document listener
     if (showCommandMenu || showMentionMenu) {
       if (["ArrowUp", "ArrowDown", "Enter", "Escape"].includes(e.key)) {
-        return; // Handled by CommandMenu/MentionMenu keydown listener
+        e.preventDefault();
+        if (showCommandMenu) commandMenuRef.current?.handleKeyDown(e.key);
+        else if (showMentionMenu) mentionMenuRef.current?.handleKeyDown(e.key);
+        return;
       }
     }
 
@@ -303,6 +308,7 @@ function ChatInputInner({ onSubmit, onCommand, processing, isActive, inputStyle 
       <div className="command-menu-wrapper">
         {showCommandMenu && (
           <CommandMenu
+            ref={commandMenuRef}
             filter={menuFilter}
             sdkCommands={sdkCommands}
             onSelect={handleCommandSelect}
@@ -311,6 +317,7 @@ function ChatInputInner({ onSubmit, onCommand, processing, isActive, inputStyle 
         )}
         {showMentionMenu && (
           <MentionMenu
+            ref={mentionMenuRef}
             filter={menuFilter}
             agents={sdkAgents}
             onSelect={handleMentionSelect}

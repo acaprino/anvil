@@ -327,9 +327,9 @@ export function useSessionController(props: SessionControllerProps): SessionCont
         finalizeStreaming();
         finalizeThinking();
         if (messageQueueRef.current.length > 0) {
-          const next = messageQueueRef.current.shift()!;
+          // Sidecar already has this message — just update the UI counter
+          messageQueueRef.current.shift();
           setQueueLength(messageQueueRef.current.length);
-          sendAgentMessage(tabId, next).catch((err) => console.debug("[session] queue drain send failed:", err));
           setInputState("processing");
         } else {
           setInputState("awaiting_input");
@@ -631,12 +631,14 @@ export function useSessionController(props: SessionControllerProps): SessionCont
     setMessages(prev => [...prev, { id: `msg-${tabId}-${++idCounterRef.current}`, role: "user", text: fullText, timestamp: Date.now() }]);
     document.handleUserMessage(fullText);
 
-    if (inputStateRef.current === "awaiting_input") {
-      setInputState("processing");
-      sendAgentMessage(tabId, sanitized).catch((err) => {
-        setMessages(prev => [...prev, { id: `msg-${tabId}-${++idCounterRef.current}`, role: "error", code: "send", message: String(err), timestamp: Date.now() }]);
-      });
-    } else {
+    // Always send immediately to the sidecar — it queues internally until the
+    // SDK asks for input, eliminating the round-trip delay on inputRequired.
+    const wasProcessing = inputStateRef.current !== "awaiting_input";
+    setInputState("processing");
+    sendAgentMessage(tabId, sanitized).catch((err) => {
+      setMessages(prev => [...prev, { id: `msg-${tabId}-${++idCounterRef.current}`, role: "error", code: "send", message: String(err), timestamp: Date.now() }]);
+    });
+    if (wasProcessing) {
       messageQueueRef.current.push(sanitized);
       setQueueLength(messageQueueRef.current.length);
       setBackgrounded(true);
